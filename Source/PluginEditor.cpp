@@ -84,6 +84,7 @@ ParamControl::ParamControl (juce::AudioProcessorValueTreeState& state, juce::Ran
         slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow);
         slider->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 90, 18);
         slider->setColour (juce::Slider::textBoxOutlineColourId, colours::outline); // subtle, not white
+        slider->setScrollWheelEnabled (false); // the wheel scrolls the page; it must never nudge a knob by accident
         addAndMakeVisible (*slider);
         sliderAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, id, *slider);
         slider->setDoubleClickReturnValue (true, p.convertFrom0to1 (p.getDefaultValue())); // double-click = default
