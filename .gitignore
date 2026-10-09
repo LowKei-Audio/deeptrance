@@ -1,0 +1,17 @@
+# Build output
+build/
+build-*/
+out/
+cmake-build-*/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+.DS_Store
+Thumbs.db
+
+# Test renders
+*.wav
+!Tests/fixtures/*.wav
