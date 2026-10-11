@@ -34,6 +34,9 @@ jobs:
       - name: DSP unit tests
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Factory presets render cleanly
+        run: build/DeepTranceRender_artefacts/Release/DeepTranceRender.exe
+
       - name: pluginval (strictness 10)
         shell: pwsh
         run: |

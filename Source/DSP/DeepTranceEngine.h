@@ -1,12 +1,25 @@
 #pragma once
-// DeepTrance signal chain (fixed order in v1):
-//   Input -> Gate -> Vowel -> Swirl -> Drift -> [Phase 2+: Cloud, Delay, Abyss, Punch] -> Mix -> Output
-// Host blocks of any size are processed in fixed internal chunks, so module
-// scratch memory is allocated once in prepare() and never on the audio thread.
+// DeepTrance signal chain (fixed order):
+//
+//   Input -> Gate -> Vowel -> Swirl -> Drift -> Acid -> Build-Up (HPF + riser)
+//         -> Punch (transient shaping + wet ducking)
+//         -> Cloud -> Fractal Delay -> Abyss       (wet parts ducked by Punch)
+//         -> Astral sweep (combo) -> Mix -> Output
+//
+// Parameter flow every 32-sample chunk:
+//   user values -> mod matrix -> Easy macros -> Build-Up -> Combo -> modules
+// The engine is real-time safe: all memory is allocated in prepare().
 
+#include "AbyssReverb.h"
+#include "AcidFilter.h"
+#include "BuildUp.h"
+#include "Cloud.h"
 #include "Common.h"
 #include "Drift.h"
+#include "FractalDelay.h"
+#include "Modulation.h"
 #include "ModuleFader.h"
+#include "Punch.h"
 #include "Swirl.h"
 #include "TranceGate.h"
 #include "TransportClock.h"
@@ -15,31 +28,70 @@
 
 namespace dt
 {
+enum class Combo { Off = 0, AstralProjection, AcidBath };
+inline constexpr std::array<const char*, 3> kComboNames { "Off", "Astral Projection", "Acid Bath" };
+
+/** Easy-view intensity macros. 0.5 = exactly the Pro settings, 0 = none, 1 = double. */
+struct MacroParams
+{
+    float gate = 0.5f, swirl = 0.5f, space = 0.5f, drift = 0.5f;
+};
+
 struct EngineParams
 {
     float inputGainDb  = 0.0f;
     float outputGainDb = 0.0f;
-    float mix          = 1.0f; // global dry/wet, 0..1
+    float mix          = 1.0f;
 
-    bool gateOn  = false;
-    bool vowelOn = false;
-    bool swirlOn = true;
-    bool driftOn = true;
+    bool gateOn = false, vowelOn = false, swirlOn = true, driftOn = true, acidOn = false;
+    bool punchOn = false, cloudOn = false, delayOn = true, abyssOn = true;
 
     GateParams  gate;
     VowelParams vowel;
     SwirlParams swirl;
     DriftParams drift;
+    AcidParams  acid;
+    PunchParams punch;
+    CloudParams cloud;
+    DelayParams delay;
+    AbyssParams abyss;
+
+    float buildUp      = 0.0f; // 0..1
+    float buildUpNoise = 0.5f; // 0..1 riser level
+    MacroParams macros;
+    Combo combo        = Combo::Off;
+    float comboAmount  = 1.0f;
+
+    std::array<LfoParams, 2>        lfo {};
+    EnvParams                       env;
+    std::array<ModSlot, kModSlots>  mod {};
 };
+
+/** Modulation destinations. Order is part of the saved-state format: append only. */
+enum class ModDest
+{
+    None = 0,
+    GateDepth, GateFilter,
+    VowelMorph, VowelMix,
+    SwirlDepth, SwirlFeedback, SwirlMix,
+    DriftAmount, DriftMix,
+    AcidCutoff, AcidResonance, AcidDrive,
+    CloudPosition, CloudSize, CloudDensity, CloudPitch, CloudJitter, CloudMix,
+    DelayFeedback, DelayPitch, DelayTone, DelayMix,
+    AbyssSize, AbyssDecay, AbyssShimmer, AbyssMix,
+    PunchAttack, BuildUp, GlobalMix,
+    Count
+};
+const std::array<const char*, (size_t) ModDest::Count>& modDestinationNames() noexcept;
 
 class DeepTranceEngine
 {
 public:
-    static constexpr int kChunk = 256;
+    static constexpr int kChunk = 32;
 
     void prepare (double sampleRate);
     void reset() noexcept;
-    void setParams (const EngineParams& p) noexcept;
+    void setParams (const EngineParams& p) noexcept { params = p; }
 
     /** Stereo, in-place. Real-time safe. */
     void process (float* left, float* right, int numSamples, const TransportInfo& transport) noexcept;
@@ -47,10 +99,18 @@ public:
     /** Zero latency: every module is latency-free (wet delays are part of the effect). */
     static constexpr int getLatencySamples() noexcept { return 0; }
 
-    const TranceGate& getGate() const noexcept { return gate; }
+    /** Applies modulation, macros, Build-Up and combo to user params (public for tests). */
+    static EngineParams derive (const EngineParams& user, float lfo1, float lfo2, float env) noexcept;
+
+    // Live values for the UI (read from the message thread; benign races on floats).
+    float getLfoValue (int i) const noexcept { return lfoOut[i]; }
+    float getEnvValue() const noexcept       { return envOut; }
+    float getGateEnvelope() const noexcept   { return gate.getEnvelope(); }
+    int   getActiveGrains() const noexcept   { return cloud.activeGrains(); }
 
 private:
     void processChunk (float* left, float* right, int n, const TransportInfo& t) noexcept;
+    void applyToModules (const EngineParams& e, bool snapEnables) noexcept;
 
     template <typename Fn>
     void runModule (ModuleFader& fader, float* l, float* r, int n, Fn&& process) noexcept;
@@ -63,9 +123,24 @@ private:
     VowelFilter    vowel;
     Swirl          swirl;
     Drift          drift;
-    ModuleFader    gateFader, vowelFader, swirlFader, driftFader;
+    AcidFilter     acid;
+    BuildUp        buildUp;
+    Punch          punch;
+    Cloud          cloud;
+    FractalDelay   delay;
+    AbyssReverb    abyss;
+    ModuleFader    gateFader, vowelFader, swirlFader, driftFader, acidFader, buildFader;
+
+    Lfo              lfo[2];
+    EnvelopeFollower envFollower;
+    float            lfoOut[2] {}, envOut = 0.0f;
+
+    // Astral Projection's slow 8-bar low-pass sweep.
+    Smoother  astralSm;
+    SvfCoeffs astralCoeffs;
+    SvfState  astralLp[2];
 
     Smoother inGainSm, outGainSm, mixSm;
-    std::vector<float> dryL, dryR, modL, modR; // kChunk-sized scratch
+    std::vector<float> dryL, dryR, modL, modR, duck; // kChunk-sized scratch
 };
 } // namespace dt
