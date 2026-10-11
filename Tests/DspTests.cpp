@@ -795,7 +795,7 @@ void renderDemos (const std::string& dir)
         EngineParams p = allOff();
         p.abyssOn = true; p.abyss.mix = 0.45f; p.abyss.decaySec = 5.0f;
         p.punchOn = true; p.punch.attack = 0.8f; p.punch.duck = dk;
-        const Stereo out = process (p, hits (sr, 6.0), sr, 512, t);
+        const Stereo out = process (p, hits (sr, 6.0, 0.25f), sr, 512, t); // leave headroom: Punch raises peaks by design
         const std::string f = dk > 0.0f ? "12b_punch_ducked.wav" : "12a_punch_no_duck.wav";
         writeWav (dir + "/" + f, out, sr);
         std::printf ("  wrote %s\n", f.c_str());
