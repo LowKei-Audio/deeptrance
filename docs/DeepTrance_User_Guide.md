@@ -1,0 +1,217 @@
+# DeepTrance User Guide
+
+**Version 1.0.0 · VST3 and standalone for Windows · by LowKei**
+
+DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures. It combines rhythmic gating, swirling modulation, vowel filtering, tape drift, acid grit, granular clouds, fractal echoes and an infinite reverb in one plug-in, with performance macros you can ride live or automate.
+
+---
+
+## 1. Installing
+
+1. Run **DeepTrance-1.0.0-Windows-Setup.exe**.
+2. Choose **VST3 plug-in and standalone app**, or **VST3 plug-in only**.
+3. Open your DAW and rescan plug-ins:
+   - **Ableton Live:** Settings > Plug-Ins > turn on *Use VST3 Plug-In System Folders* > *Rescan*.
+   - **FL Studio:** Options > Manage plugins > *Find plugins*.
+   - **Serato Studio:** Settings > Plugins > enable VST3 > *Rescan*.
+
+The VST3 is installed to `C:\Program Files\Common Files\VST3\DeepTrance.vst3`, the standard folder every DAW scans. The standalone app appears in the Start menu as **DeepTrance**.
+
+> Windows may show a SmartScreen notice the first time you run the installer. Choose *More info* > *Run anyway*.
+
+---
+
+## 2. Quick Start
+
+1. Put DeepTrance on a pad, pluck or vocal track.
+2. Press play. DeepTrance follows your project tempo automatically.
+3. Drag the dot in the **Deep Space** pad: right adds swirl, up adds space.
+4. Click **GATE** in the module strip for an instant trance rhythm.
+5. Step through presets with the **<** and **>** arrows at the top.
+
+By default DeepTrance loads with a gentle phaser (Swirl), subtle tape width (Drift), a dotted-eighth ping-pong echo and a medium reverb, so it sounds musical from the first second.
+
+---
+
+## 3. The Two Views
+
+Click **EASY** or **PRO** in the top-right corner. Switching never changes the sound, and your choice is saved with your project.
+
+### Easy view
+
+| Control | What it does |
+|---|---|
+| **Deep Space pad** | X = Swirl intensity, Y = Space (delay and reverb). Double-click to recentre. |
+| **GATE** | How hard the Trance Gate chops (when the gate is on). |
+| **SWIRL** | Phaser/flanger depth and mix. |
+| **SPACE** | Delay and reverb amount, plus reverb size. |
+| **DRIFT** | Tape wobble and width. |
+| **BUILD-UP** | The tension knob for breakdowns (see section 5). |
+| **MIX** | Overall dry/wet. |
+| **COMBO + Amount** | One-click effect chains (see section 6). |
+| **Gate Pattern** | Choose the rhythm without opening Pro. |
+| **Module strip** | One click turns each module on or off. |
+| **FREEZE CLOUD / FREEZE ABYSS** | Hold the current sound indefinitely. |
+
+The four intensity macros sit at **50%** by default, which means "exactly as set in Pro". Turn one down to 0% to remove that effect, or up to 100% to double it.
+
+### Pro view
+
+Every module has its own card with an **ON** switch in its header. Scroll to reach the Modulation section at the bottom. Drag a knob to change it; double-click to return it to its default. The mouse wheel scrolls the page and never changes a knob.
+
+---
+
+## 4. The Modules
+
+DeepTrance processes in this order:
+
+**Gate > Vowel > Swirl > Drift > Acid > Build-Up > Punch > Cloud > Delay > Abyss > Mix**
+
+### Trance Gate (Rhythm Enforcer)
+A tempo-synced, 16-step volume and filter gate.
+
+- **Rate:** 1/8, 1/16, 1/32 or triplets.
+- **Pattern:** eight factory rhythms (Classic 16ths, Offbeat Pump, Driving, Gallop, Stutter, Accent Wave, Half Time, Build Roll) or **Custom**.
+- **Draw your own:** in Pro, draw on the 16-step grid. Drawing over a factory pattern copies it into Custom first, so every pattern is an editable starting point.
+- **Depth, Length, Attack, Release:** how deep, how long and how smooth each step is.
+- **Filter:** closed steps also sweep a low-pass filter down, for a softer "breathing" gate.
+
+### Vowel Filter (The Voice)
+Morphs through A-E-I-O-U formants for talking leads. **LFO Depth** and **LFO Rate** sweep the vowel in time with your track. **Resonance** sharpens the formants.
+
+### Swirl (Dual-Band Phase and Flange)
+Phaser, flanger or both, synced to tempo. Only the highs swirl; the bass below the **Crossover** stays solid. Raise **Low Band** to let some of the lows move too.
+
+### Drift (Wow and Flutter)
+Slow, tape-like pitch wobble for the wide, slightly detuned sound of classic 90s anthems. **Amount** reaches about 25 cents at maximum.
+
+### Acid (Aggressive Saturation)
+A resonant 303-style filter with an accent envelope (the "squelch"), followed by three-band distortion. Drive is level-matched, so turning it up changes the character, not the volume.
+
+### Punch (Psy-Transient Shaper)
+Sharpens the attack of plucks and kicks so they cut through a wet mix, and briefly ducks the delay, reverb and cloud after each hit (**Duck** and **Duck Release**).
+
+### Cloud (Granular Engine)
+Smears the live input into a cloud of tiny grains.
+
+- **Size, Density:** short, sparse grains stutter; long, dense grains become a pad.
+- **Position, Spray:** how far back grains reach, and how scattered they are.
+- **Pitch, Jitter, Shimmer:** transpose, detune each grain, or throw grains up an octave.
+- **Freeze:** stops listening and loops the current moment, perfect before a drop.
+
+### Fractal Delay (Ping-Pong)
+A stereo echo whose feedback runs through its own pitch shifter and filter. Set **Pitch** to +12 for crystalline, climbing echoes, or below zero for a deep, murky wash. **Tone** darkens each repeat. **Sync** off lets you set the time in milliseconds.
+
+### Abyss Reverb (Infinite Space)
+A lush, modulated reverb with decays up to 60 seconds. **Shimmer** adds octave-up sparkle. **Freeze** holds the tail indefinitely, turning a short pluck into an endless drone.
+
+> Delay, Cloud and Abyss tails ring out naturally when you switch them off.
+
+---
+
+## 5. Build-Up (Tension Generator)
+
+Automate **BUILD-UP** from 0% to 100% over 8 or 16 bars before a drop. As it rises, DeepTrance:
+
+- sweeps a steep high-pass filter upward, removing the bass,
+- adds a white-noise riser that follows the sweep (**Build-Up Noise** sets its level),
+- increases the reverb amount, size and decay,
+- speeds up the Swirl.
+
+Snap it back to 0% on the drop.
+
+---
+
+## 6. Combos
+
+| Combo | What happens |
+|---|---|
+| **Astral Projection** | Removes the dry signal, routes a granular smear into a huge shimmer reverb, and sweeps a slow 8-bar low-pass over it. Turns a fast arpeggio into an instant ambient breakdown. |
+| **Acid Bath** | Engages the resonant 303 filter and distortion with a fast 1/16 ping-pong delay. Turns a clean pluck into a gritty acid line. |
+
+**Amount** blends from your own settings (0%) to the full combo (100%). Automate it to morph into a combo over a few bars.
+
+---
+
+## 7. Modulation (Pro view)
+
+### LFO 1 and LFO 2
+
+- **Shapes:** Sine, Triangle, Saw Up, Saw Down, Square, Sample & Hold, Smooth Random and **Custom**.
+- **Custom:** draw your own 16-point shape in the editor under each LFO. Drawing switches the LFO to Custom automatically. Your drawing is saved with the project and with user presets.
+- **Sync:** on = locked to the bar (1/32 to 16 bars); off = free rate in Hz.
+
+### Envelope Follower
+Follows the input level. **Sensitivity** lifts quiet sources so they still drive the modulation.
+
+### Mod Matrix
+Eight slots. Each slot connects a **source** (LFO 1, LFO 2 or Envelope) to a **destination**, with a positive or negative **amount**.
+
+Destinations include gate depth and filter, vowel, swirl depth/feedback/mix, drift, acid cutoff/resonance/drive, cloud position/size/density/pitch/jitter/mix, delay feedback/pitch/tone/mix, abyss size/decay/shimmer/mix, punch attack, Build-Up and the global mix.
+
+> Try: LFO 1, Saw Up, 8 Bars > Cloud Position at 40% for a pad that slowly scans through a vocal.
+
+---
+
+## 8. Presets
+
+Use **<** and **>** to step through presets, or click the preset name for the full menu.
+
+**Factory presets (26):**
+
+- **Pads:** Euphoric Wash, Gated Supersaw, Talking Pad, Frozen Horizon
+- **Plucks:** Classic 3/16 Echo, Crystal Ascend, Murky Descent, Psy Punch
+- **Leads:** Acid Squelch, Vowel Lead, 90s Anthem, Flange Rider
+- **Vocals:** Breathe Cloud, Angel Shimmer, Stutter Chop
+- **Build-Ups:** 8-Bar Riser, Tension Gate, Infinite Riser
+- **FX:** Astral Projection, Acid Bath, Frozen Abyss, Glitch Tops, Wobble Space, Breathing Swirl, Pumping Space
+
+**Your presets:** click **SAVE** and give it a name. User presets are stored in `Documents\DeepTrance Presets` as `.dtpreset` files, so you can back them up or share them. The menu also has **Open Presets Folder**.
+
+The factory presets also appear in your DAW's own preset list.
+
+---
+
+## 9. Tips for Each DAW
+
+- **Ableton Live:** use *Configure* on the device title bar to expose macros for Push or clip automation.
+- **FL Studio:** right-click any knob > *Create automation clip*. Build-Up is perfect for this.
+- **Serato Studio:** load DeepTrance as a channel FX. The Easy view keeps everything one click away during a live set.
+
+---
+
+## 10. Performance
+
+DeepTrance adds **no latency**, so it stays in time in every DAW. Effects that are switched off use no CPU once their tails finish.
+
+Measured CPU use (48 kHz, one core):
+
+| Setup | CPU |
+|---|---|
+| Default sound | about 3% |
+| Every module on, 8 mod slots active | about 6% |
+| Worst case (96 dense grains + Build-Up) | about 13% |
+
+---
+
+## 11. Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| DeepTrance does not appear in the DAW | Rescan plug-ins (section 1). Make sure your DAW scans `C:\Program Files\Common Files\VST3`. |
+| The gate is out of time | DeepTrance follows the DAW tempo. With the transport stopped it keeps running at the last tempo; press play to lock it to the grid. |
+| A frozen sound will not stop | Click **FREEZE ABYSS** or **FREEZE CLOUD** again, or switch that module off. |
+| Too much low end in the reverb | Raise **Abyss Damping**, or use **Punch** to duck the tail. |
+| The standalone app makes no sound | Click *Options* > *Audio/MIDI Settings* and choose your audio device and input. |
+
+---
+
+## 12. Specifications
+
+- **Format:** VST3 (64-bit) and standalone, Windows 10/11
+- **Supported hosts:** Ableton Live, FL Studio, Serato Studio
+- **Channels:** stereo or mono
+- **Sample rates:** 44.1 to 192 kHz
+- **Latency:** 0 samples
+- **Parameters:** 133, all automatable
+- **Validation:** Steinberg VST3 validator (47/47) and pluginval at strictness level 10

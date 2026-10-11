@@ -1,45 +1,43 @@
 # DeepTrance
 
-A trance-focused modulation and combo-effects plugin (VST3 + Windows standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads, plucks and vocals into moving, euphoric trance textures.
+A trance-focused modulation and combo-effects plug-in (VST3 + Windows standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures.
 
-**Status:** v0.1 (Phase 1 of 6). The core modulation modules are complete and validated.
+**Status:** v1.0.0. All six build phases are complete and validated. Final sign-off needs a listening and loading pass in the three target DAWs.
 
-## What is in Phase 1
+- **User Guide:** [`docs/DeepTrance_User_Guide.md`](docs/DeepTrance_User_Guide.md) (also `.txt` and `.pdf`)
+- **Download:** the installer is attached to each GitHub Release, and to every successful **Build** run under *Artifacts*.
 
-| Module | What it does | Default |
-|---|---|---|
-| **Trance Gate** | 16-step tempo-synced volume and filter gate. 8 factory patterns, or draw your own. | Off |
-| **Vowel Filter** | Three formant filters morphing through A-E-I-O-U, with a tempo-synced sweep for "talking" leads. | Off |
-| **Swirl** | Dual-band phaser and/or flanger. Only the highs swirl; the low end stays solid. | On, 35% mix |
-| **Drift** | Tape-style wow and flutter for wide, slightly detuned 90s-trance width. | On, 35% mix |
+## Features
 
-The signal flows in a fixed order: Input, Gate, Vowel, Swirl, Drift, Mix, Output.
+| Area | What it does |
+|---|---|
+| **Trance Gate** | 16-step tempo-synced volume + filter gate, 8 patterns, drawable custom pattern |
+| **Vowel Filter** | A-E-I-O-U formant morph with synced sweep |
+| **Swirl** | Dual-band phaser/flanger; lows stay solid |
+| **Drift** | Tape wow and flutter (up to 25 cents) |
+| **Acid** | Resonant 303-style filter + accent envelope + 3-band anti-aliased distortion, level-matched |
+| **Punch** | Transient shaper that ducks every wet tail after it |
+| **Cloud** | Live granular engine (up to 96 grains) with pitch, jitter, shimmer, Freeze |
+| **Fractal Delay** | Ping-pong delay with pitch shift + filter in the feedback loop |
+| **Abyss** | 8-line FDN reverb, decays to 60 s, octave shimmer, Freeze |
+| **Build-Up** | One knob: HPF sweep, noise riser, bigger reverb, faster swirl |
+| **Combos** | Astral Projection, Acid Bath, blendable by amount |
+| **Modulation** | 2 LFOs (8 shapes incl. drawn), envelope follower, 8-slot matrix, 29 destinations |
+| **Interface** | Easy view (Deep Space XY pad + 6 macros + one-click switches) and Pro view |
+| **Presets** | 26 factory presets (also host programs) + user presets |
 
-### Easy and Pro views
+Zero latency. Effects that are off cost no CPU once their tails end.
 
-- **Easy** shows the one or two controls per module that matter most.
-- **Pro** shows every parameter plus the drawable 16-step gate editor.
-- Switching views never changes the sound. The choice is saved with your session.
-- Drawing on the step grid while a factory pattern is playing copies that pattern into **Custom** first, so every factory pattern is an editable starting point.
+## Signal flow
 
-### Behavior worth knowing
+```
+Input > Gate > Vowel > Swirl > Drift > Acid > Build-Up > Punch
+      > Cloud > Fractal Delay > Abyss > Astral sweep > Mix > Output
+            (wet tails ducked by Punch)
+```
 
-- **Tempo sync:** follows your DAW's tempo and bar position while playing. With the transport stopped, the gate and LFOs keep running at the last tempo, so you can audition without pressing play.
-- **Zero latency:** DeepTrance reports no plugin delay.
-- **Click-free:** every module fades in and out over 15 ms when switched, and all knobs are smoothed.
-- **Low CPU:** about 1.7% of one core with every Phase 1 module on (48 kHz).
-- **Double-click** any knob to return it to its default.
-
-## Installing (Windows)
-
-1. Download `DeepTrance-Windows-x64` from the latest successful **Build** run on GitHub Actions.
-2. Copy `DeepTrance.vst3` to `C:\Program Files\Common Files\VST3\`.
-3. Rescan plugins in your DAW:
-   - **Ableton Live:** Preferences, Plug-Ins, enable "Use VST3 Plug-In System Folders", then Rescan.
-   - **FL Studio:** Options, Manage plugins, Find plugins.
-   - **Serato Studio:** Settings, Plugins, enable VST3, then Rescan.
-
-`DeepTrance.exe` is the standalone version and needs no DAW.
+Parameters are applied every 32 samples in this order:
+`user values > mod matrix > Easy macros > Build-Up > Combo > modules`.
 
 ## Building from source
 
@@ -49,40 +47,61 @@ Requirements: CMake 3.22+, a C++20 compiler (Visual Studio 2022 or newer on Wind
 cmake -S . -B build -A x64
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
+build/DeepTranceRender_artefacts/Release/DeepTranceRender.exe   # renders all presets
 ```
 
-To use a local JUCE checkout instead of downloading: `-DDT_JUCE_PATH=C:/path/to/JUCE`.
-To build only the DSP and its tests (no JUCE): `-DDT_BUILD_PLUGIN=OFF`.
+Options:
+
+- `-DDT_JUCE_PATH=C:/path/to/JUCE` uses a local JUCE checkout.
+- `-DDT_BUILD_PLUGIN=OFF` builds only the DSP library and its tests (no JUCE).
+- `DeepTranceRender <folder>` also writes one WAV per factory preset.
+- `DeepTranceTests --render <folder>` writes per-module demo WAVs.
+
+The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.0 installer\DeepTrance.iss`.
 
 ## Project layout
 
 ```
-Source/DSP/        Plain C++ DSP, no JUCE dependency (one class per module)
+Source/DSP/        Plain C++ DSP, no JUCE (one class per module + engine)
 Source/Params/     Parameter IDs and layout (IDs are permanent once released)
+Source/Presets/    Preset manager and the factory library
+Source/UI/         Look-and-feel, controls, Easy view, Pro view
 Source/            JUCE processor and editor
-Tests/             DSP unit tests and demo renders
-.github/workflows/ Windows build, unit tests and pluginval
+Tests/             DSP unit tests; offline preset renderer
+installer/         Inno Setup script
+docs/              User Guide and README in .md, .txt and .pdf
+.github/workflows/ CI: tests, presets, pluginval, VST3 validator, installer, releases
 ```
 
 ## Quality checks
 
 Every push runs on Windows:
-- DSP unit tests: bit-exact bypass, stability at extreme settings across 44.1 to 192 kHz, gate timing against the host clock, detune measured in cents, click-free toggling and CPU budget.
+
+- **DSP unit tests:** bit-exact bypass; stability at extreme settings from 44.1 to 192 kHz; gate timing and block-size independence; formants; detune in cents; echo timing and ping-pong sides; pitch per repeat; tail spillover; reverb decay time; Freeze hold; shimmer stability; transient and ducking depth; grain pitch and loudness; acid drive loudness; Build-Up, combos, macros, LFO sync and mod matrix maths; CPU budget.
+- **Preset renderer:** all 26 factory presets through the real processor (finite, sane loudness).
 - **pluginval** at strictness level 10.
+- **Steinberg VST3 validator** (47 tests).
+- **Installer** build.
 
-Run `DeepTranceTests --render <folder>` to write demo WAVs of each module.
+Pushing a tag such as `v1.0.0` publishes a GitHub Release with the installer attached.
 
-## Roadmap
+## Measured performance
 
-| Phase | Scope |
-|---|---|
-| 1 | Scaffold, CI, Gate, Vowel, Swirl, Drift **(done)** |
-| 2 | Ping-Pong Fractal Delay, Abyss reverb with Freeze, Punch transient shaper |
-| 3 | Cloud granular engine with Freeze, pitch jitter and spray |
-| 4 | Build-Up macro, Astral Projection and Acid Bath combos, LFOs, mod matrix |
-| 5 | Final UI: Deep Space XY pad, macros, factory presets |
-| 6 | Validation in all three DAWs, Steinberg VST3 validator, full documentation |
+48 kHz, one core: defaults about 3%, everything on with 8 mod slots about 6%, worst case (96 grains + Build-Up) about 13%.
 
-## License note
+## Before selling
 
-DeepTrance is built with JUCE. Selling it requires a JUCE license that matches your revenue tier. Check the current terms at juce.com before release.
+- **JUCE licence:** selling requires a JUCE licence that matches your revenue tier. Check current terms at juce.com.
+- **Code signing:** the installer is unsigned, so Windows SmartScreen shows a warning. A code-signing certificate removes it.
+- **EULA:** add your licence agreement (`LicenseFile=` in `installer/DeepTrance.iss`).
+
+## Roadmap status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Scaffold, CI, Gate, Vowel, Swirl, Drift | Done |
+| 2 | Fractal Delay, Abyss + Freeze, Punch | Done |
+| 3 | Cloud granular engine | Done |
+| 4 | Acid, Build-Up, combos, LFOs, mod matrix | Done |
+| 5 | Easy/Pro UI, XY pad, presets | Done |
+| 6 | Validation, installer, docs | Done (DAW listening pass pending) |
