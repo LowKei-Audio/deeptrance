@@ -56,7 +56,7 @@ if(DT_BUILD_PLUGIN)
     endif()
 
     juce_add_plugin(DeepTrance
-        COMPANY_NAME              "LowKei"
+        COMPANY_NAME              "LowKei Audio"    # vendor shown in DAW plugin lists (display only)
         PLUGIN_MANUFACTURER_CODE  Lwki
         PLUGIN_CODE               Dptr
         PRODUCT_NAME              "DeepTrance"
