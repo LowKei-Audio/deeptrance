@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DSP/DeepTranceEngine.h"
+#include "Presets/PresetManager.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 class DeepTranceProcessor final : public juce::AudioProcessor
@@ -25,13 +26,13 @@ public:
     bool   acceptsMidi() const override  { return false; }
     bool   producesMidi() const override { return false; }
     bool   isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.1; } // Phase 2 reverb/delay will raise this
+    double getTailLengthSeconds() const override { return 30.0; } // long reverb tails (Freeze can hold longer)
 
-    // Programs (factory presets arrive in Phase 5)
-    int  getNumPrograms() override { return 1; }
-    int  getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return "Default"; }
+    // Programs = factory presets, so hosts' own preset menus list them too.
+    int  getNumPrograms() override;
+    int  getCurrentProgram() override;
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
     void changeProgramName (int, const juce::String&) override {}
 
     // State
@@ -39,31 +40,41 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& getState() noexcept { return apvts; }
+    dt::PresetManager& getPresets() noexcept               { return presets; }
+    const dt::DeepTranceEngine& getEngine() const noexcept { return engine; }
 
     /** Easy/Pro is a view choice, saved with the session but not automatable. */
     bool isProMode() const;
     void setProMode (bool pro);
 
+    /** Loads a user preset file (parameters + drawn LFO shapes). */
+    bool loadUserPreset (const juce::File& file);
+
+    /** Custom ("drawn") LFO shapes, 16 points 0..1. Thread-safe; saved with the session. */
+    float getCustomPoint (int lfo, int point) const noexcept;
+    void  setCustomPoint (int lfo, int point, float value);
+    void  resetCustomShapes();
+
 private:
     void updateEngineParams() noexcept;
     dt::TransportInfo readTransport() const;
+    void syncCustomShapesToState();
+    void loadCustomShapesFromState();
 
     juce::AudioProcessorValueTreeState apvts;
+    dt::PresetManager presets;
     dt::DeepTranceEngine engine;
     juce::AudioBuffer<float> monoScratch; // right channel for mono layouts
 
-    // Cached raw parameter pointers (lock-free reads on the audio thread).
-    struct Raw
+    /** One parameter -> engine field mapping. Built once; read lock-free per block. */
+    struct Binding
     {
-        std::atomic<float>* p = nullptr;
-        float get() const noexcept { return p->load (std::memory_order_relaxed); }
+        std::atomic<float>* value = nullptr;
+        void (*apply) (dt::EngineParams&, float, int) = nullptr;
+        int index = 0; // step / LFO / slot number for indexed parameters
     };
-    Raw inputGain, outputGain, mix;
-    Raw gateOn, gateRate, gatePattern, gateDepth, gateLength, gateAttack, gateRelease, gateFilter;
-    std::array<Raw, 16> gateSteps;
-    Raw vowelOn, vowelMorph, vowelLfoRate, vowelLfoDepth, vowelResonance, vowelMix;
-    Raw swirlOn, swirlMode, swirlRate, swirlDepth, swirlFeedback, swirlStereo, swirlXover, swirlLow, swirlMix;
-    Raw driftOn, driftAmount, driftRate, driftFlutter, driftStereo, driftMix;
+    std::vector<Binding> bindings;
+    std::array<std::array<std::atomic<float>, dt::kCustomPoints>, 2> customShapes;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeepTranceProcessor)
 };

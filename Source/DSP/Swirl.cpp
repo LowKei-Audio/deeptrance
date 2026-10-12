@@ -77,6 +77,12 @@ void Swirl::process (float* left, float* right, int numSamples, const TransportC
     float flangerDelay[2] {};
     float* io[2] = { left, right };
 
+    // At normal speed the LFO is locked to the host grid. Sped up (Build-Up), it
+    // free-runs from wherever it was, so speeding up never jumps the sweep.
+    const double speed  = std::max (1.0, (double) params.speedMul);
+    const bool   synced = speed < 1.0001;
+    const double freeInc = clock.getPpqPerSample() / cycleQuarters * speed;
+
     for (int i = 0; i < numSamples; ++i)
     {
         const float depth = depthSm.next();
@@ -84,7 +90,9 @@ void Swirl::process (float* left, float* right, int numSamples, const TransportC
         const float low   = lowSm.next();
         const float mix   = mixSm.next();
 
-        const double phase = wrap01 (clock.ppqAt (i) / cycleQuarters);
+        const double phase = synced ? wrap01 (clock.ppqAt (i) / cycleQuarters)
+                                    : wrap01 (freePhase + freeInc);
+        freePhase = phase;
         const bool   updateCoeffs = (--coeffCountdown <= 0);
         if (updateCoeffs) coeffCountdown = 8;
 

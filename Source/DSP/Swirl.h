@@ -23,6 +23,7 @@ struct SwirlParams
     float     xoverHz   = 250.0f; // 60..1000
     float     lowAmount = 0.0f;   // 0..1, how much of the low band is swirled
     float     mix       = 0.35f;  // 0..1
+    float     speedMul  = 1.0f;   // set by Build-Up: >1 speeds the LFO up (free-running while > 1)
 };
 
 class Swirl
@@ -55,5 +56,6 @@ private:
     Channel     ch[2];
     int         coeffCountdown = 0;
     float       currentXover = 0.0f;
+    double      freePhase = 0.0; // continues smoothly from the synced phase when sped up
 };
 } // namespace dt
