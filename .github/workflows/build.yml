@@ -10,6 +10,9 @@ on:
 permissions:
   contents: write # needed only by the release step (tags)
 
+env:
+  CLAP_VALIDATOR_TAG: 0.4.1  # 0.3.x no longer compiles on current Rust (same pin as Compass)
+
 jobs:
   # Fast check: DSP unit tests only (no JUCE download).
   dsp-tests:
@@ -23,7 +26,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-  # The real product: Windows VST3 + Standalone, validated, packaged.
+  # The real product: Windows VST3 + CLAP + Standalone, validated, packaged.
   windows:
     runs-on: windows-latest
     steps:
@@ -60,6 +63,15 @@ jobs:
           & $validator.FullName "build/DeepTrance_artefacts/Release/VST3/DeepTrance.vst3"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # clap-validator exits non-zero if any conformance test fails. Built from
+      # source with cargo at a pinned tag, the same way Compass does it.
+      - name: clap-validator
+        shell: pwsh
+        run: |
+          cargo install --locked --git https://github.com/free-audio/clap-validator --tag $env:CLAP_VALIDATOR_TAG clap-validator
+          clap-validator validate "build/DeepTrance_artefacts/Release/CLAP/DeepTrance.clap"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
@@ -69,12 +81,13 @@ jobs:
           & $iscc "/DAppVersion=$version" "/DBuildDir=..\build" installer\DeepTrance.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload VST3, Standalone and installer
+      - name: Upload VST3, CLAP, Standalone and installer
         uses: actions/upload-artifact@v4
         with:
           name: DeepTrance-Windows-x64
           path: |
             build/DeepTrance_artefacts/Release/VST3/DeepTrance.vst3
+            build/DeepTrance_artefacts/Release/CLAP/DeepTrance.clap
             build/DeepTrance_artefacts/Release/Standalone/DeepTrance.exe
             installer/Output/*.exe
 

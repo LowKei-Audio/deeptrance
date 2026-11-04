@@ -1,7 +1,7 @@
 ; DeepTrance Windows installer (Inno Setup 6).
 ; Built by CI: iscc /DAppVersion=1.0.0 /DBuildDir=..\build installer\DeepTrance.iss
-; Installs the VST3 to the standard shared VST3 folder (all DAWs scan it) and,
-; optionally, the standalone app with a Start menu shortcut.
+; Installs the VST3 and CLAP plug-ins to the standard shared folders (all DAWs
+; scan them) and, optionally, the standalone app with a Start menu shortcut.
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -31,16 +31,19 @@ WizardStyle=modern
 UninstallDisplayName=DeepTrance {#AppVersion}
 
 [Types]
-Name: "full"; Description: "VST3 plug-in and standalone app"
-Name: "vst3"; Description: "VST3 plug-in only"
+Name: "full"; Description: "VST3 and CLAP plug-ins and standalone app"
+Name: "vst3"; Description: "Plug-ins only"
 Name: "custom"; Description: "Custom"; Flags: iscustom
 
 [Components]
 Name: "vst3"; Description: "VST3 plug-in (Ableton Live, FL Studio, Serato Studio)"; Types: full vst3 custom; Flags: fixed
+Name: "clap"; Description: "CLAP plug-in (FL Studio, Bitwig Studio, Reaper)"; Types: full vst3 custom
 Name: "standalone"; Description: "Standalone app (no DAW needed)"; Types: full
 
 [Files]
 Source: "{#Artefacts}\VST3\DeepTrance.vst3\*"; DestDir: "{commoncf64}\VST3\DeepTrance.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+; CLAP is a single file in the shared CLAP folder.
+Source: "{#Artefacts}\CLAP\DeepTrance.clap"; DestDir: "{commoncf64}\CLAP"; Components: clap; Flags: ignoreversion
 Source: "{#Artefacts}\Standalone\DeepTrance.exe"; DestDir: "{app}"; Components: standalone; Flags: ignoreversion
 Source: "..\docs\DeepTrance_User_Guide.pdf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\README.txt"; DestDir: "{app}"; Flags: ignoreversion isreadme

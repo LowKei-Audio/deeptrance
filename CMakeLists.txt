@@ -9,7 +9,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # a common cause of "plugin failed to load" in FL Studio and Serato.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-option(DT_BUILD_PLUGIN "Build the JUCE plugin targets (VST3 + Standalone)" ON)
+option(DT_BUILD_PLUGIN "Build the JUCE plugin targets (VST3 + CLAP + Standalone)" ON)
+option(DT_BUILD_CLAP   "Add the CLAP format (clap-juce-extensions)" ON)
 option(DT_BUILD_TESTS  "Build the DSP unit tests" ON)
 
 # ---------------------------------------------------------------------------
@@ -55,6 +56,24 @@ if(DT_BUILD_PLUGIN)
         FetchContent_MakeAvailable(JUCE)
     endif()
 
+    # JUCE has no built-in CLAP, so CLAP comes from clap-juce-extensions.
+    # Point DT_CLAP_JUCE_PATH at a local checkout to skip the download.
+    if(DT_BUILD_CLAP)
+        set(DT_CLAP_JUCE_PATH "" CACHE PATH "Optional local clap-juce-extensions checkout")
+        if(DT_CLAP_JUCE_PATH)
+            add_subdirectory(${DT_CLAP_JUCE_PATH} clap-juce-extensions EXCLUDE_FROM_ALL)
+        else()
+            include(FetchContent)
+            # Pinned commit (same as Compass, Starfire and the rest of the family):
+            # the 0.26.0 release predates JUCE 8.0.11's juce_audio_processors_headless split.
+            FetchContent_Declare(clap-juce-extensions
+                GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+                GIT_TAG        7adee3a1bd4684d4caa5601100e364abccff4b4d
+                GIT_SUBMODULES_RECURSE ON)
+            FetchContent_MakeAvailable(clap-juce-extensions)
+        endif()
+    endif()
+
     juce_add_plugin(DeepTrance
         COMPANY_NAME              "LowKei Audio"    # vendor shown in DAW plugin lists (display only)
         PLUGIN_MANUFACTURER_CODE  Lwki
@@ -68,6 +87,14 @@ if(DT_BUILD_PLUGIN)
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
         VST3_CATEGORIES           Fx Modulation
         COPY_PLUGIN_AFTER_BUILD   FALSE)
+
+    # CLAP wrapper (FL Studio, Bitwig, Reaper). The ID is stored in every host
+    # project that uses the plugin, so never change it once shipped.
+    if(DT_BUILD_CLAP)
+        clap_juce_extensions_plugin(TARGET DeepTrance
+            CLAP_ID       "com.lowkeiaudio.deeptrance"
+            CLAP_FEATURES audio-effect multi-effects filter delay reverb chorus)
+    endif()
 
     target_sources(DeepTrance PRIVATE
         Source/PluginProcessor.cpp
