@@ -1,6 +1,6 @@
 # DeepTrance User Guide
 
-**Version 1.0.0 · VST3 and standalone for Windows · by LowKei**
+**Version 1.0.0 · VST3, CLAP and standalone for Windows · by LowKei**
 
 DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures. It combines rhythmic gating, swirling modulation, vowel filtering, tape drift, acid grit, granular clouds, fractal echoes and an infinite reverb in one plug-in, with performance macros you can ride live or automate.
 
@@ -9,13 +9,13 @@ DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric tra
 ## 1. Installing
 
 1. Run **DeepTrance-1.0.0-Windows-Setup.exe**.
-2. Choose **VST3 plug-in and standalone app**, or **VST3 plug-in only**.
+2. Choose **VST3 and CLAP plug-ins and standalone app**, or **Plug-ins only**.
 3. Open your DAW and rescan plug-ins:
    - **Ableton Live:** Settings > Plug-Ins > turn on *Use VST3 Plug-In System Folders* > *Rescan*.
-   - **FL Studio:** Options > Manage plugins > *Find plugins*.
+   - **FL Studio:** Options > Manage plugins > *Find plugins*. Versions of FL Studio with CLAP support list both a VST3 and a CLAP entry; either works, so use one per project.
    - **Serato Studio:** Settings > Plugins > enable VST3 > *Rescan*.
 
-The VST3 is installed to `C:\Program Files\Common Files\VST3\DeepTrance.vst3`, the standard folder every DAW scans. The standalone app appears in the Start menu as **DeepTrance**.
+The VST3 is installed to `C:\Program Files\Common Files\VST3\DeepTrance.vst3` and the CLAP to `C:\Program Files\Common Files\CLAP\DeepTrance.clap`, the standard folders every DAW scans. The standalone app appears in the Start menu as **DeepTrance**.
 
 > Windows may show a SmartScreen notice the first time you run the installer. Choose *More info* > *Run anyway*.
 
@@ -198,7 +198,7 @@ Measured CPU use (48 kHz, one core):
 
 | Problem | Fix |
 |---|---|
-| DeepTrance does not appear in the DAW | Rescan plug-ins (section 1). Make sure your DAW scans `C:\Program Files\Common Files\VST3`. |
+| DeepTrance does not appear in the DAW | Rescan plug-ins (section 1). Make sure your DAW scans `C:\Program Files\Common Files\VST3` (or `C:\Program Files\Common Files\CLAP` for the CLAP). |
 | The gate is out of time | DeepTrance follows the DAW tempo. With the transport stopped it keeps running at the last tempo; press play to lock it to the grid. |
 | A frozen sound will not stop | Click **FREEZE ABYSS** or **FREEZE CLOUD** again, or switch that module off. |
 | Too much low end in the reverb | Raise **Abyss Damping**, or use **Punch** to duck the tail. |

@@ -1,8 +1,8 @@
 DeepTrance
 
-A trance-focused modulation and combo-effects plug-in (VST3 + Windows standalone) for
-Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads, plucks, leads and
-vocals into moving, euphoric trance textures.
+A trance-focused modulation and combo-effects plug-in (VST3 and CLAP, plus a Windows
+standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads,
+plucks, leads and vocals into moving, euphoric trance textures.
 
 Status: v1.0.0. All six build phases are complete and validated. Final sign-off needs a
 listening and loading pass in the three target DAWs.
@@ -98,7 +98,7 @@ Project layout
     Tests/             DSP unit tests; offline preset renderer
     installer/         Inno Setup script
     docs/              User Guide and README in .md, .txt and .pdf
-    .github/workflows/ CI: tests, presets, pluginval, VST3 validator, installer, releases
+    .github/workflows/ CI: tests, presets, pluginval, VST3 and CLAP validators, installer, releases
 
 Quality checks
 
@@ -113,6 +113,7 @@ Every push runs on Windows:
     loudness).
 -   pluginval at strictness level 10.
 -   Steinberg VST3 validator (47 tests).
+-   clap-validator, the official CLAP conformance suite.
 -   Installer build.
 
 Pushing a tag such as v1.0.0 publishes a GitHub Release with the installer attached.

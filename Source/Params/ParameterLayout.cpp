@@ -41,8 +41,18 @@ namespace
                                           [unit, decimals] (float v, int)
                                           {
                                               // "%" hugs the number (matches percent()); other units get a space.
-                                              if (unit == "Hz" && v >= 1000.0f) return juce::String (v / 1000.0f, 2) + " kHz";
+                                              // Switch to kHz on the rounded value, so 999.996 Hz and 1000 Hz print alike.
+                                              if (unit == "Hz" && juce::roundToInt (v) >= 1000) return juce::String (v / 1000.0f, 2) + " kHz";
                                               return num (v, decimals) + (unit == "%" ? "" : " ") + unit;
+                                          })
+                                          .withValueFromStringFunction ([unit] (const juce::String& t)
+                                          {
+                                              // Inverse of the display: "1.20 kHz" -> 1200 Hz; seconds typed into a ms field also work.
+                                              const float x = t.getFloatValue();
+                                              if (unit == "Hz" && t.containsIgnoreCase ("k")) return x * 1000.0f;
+                                              if (unit == "ms" && t.containsIgnoreCase ("s") && ! t.containsIgnoreCase ("ms")) return x * 1000.0f;
+                                              if (unit == "s" && t.containsIgnoreCase ("ms")) return x / 1000.0f;
+                                              return x;
                                           }));
     }
 
@@ -129,6 +139,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                                    if (t > 0.95f) return juce::String (VowelFilter::kVowelNames[(size_t) a + 1]);
                                    return juce::String (VowelFilter::kVowelNames[(size_t) a]) + ">"
                                         + VowelFilter::kVowelNames[(size_t) a + 1];
+                               })
+                               .withValueFromStringFunction ([] (const juce::String& t)
+                               {
+                                   // Inverse of the display: "E" -> 1, "A>E" -> halfway between A and E.
+                                   // Anything else is read as a number on the 0..4 morph.
+                                   const auto& vn = VowelFilter::kVowelNames;
+                                   auto vowelIndex = [&vn] (const juce::String& n)
+                                   {
+                                       for (size_t k = 0; k < vn.size(); ++k)
+                                           if (n.trim().equalsIgnoreCase (vn[k])) return (int) k;
+                                       return -1;
+                                   };
+                                   if (t.containsChar ('>'))
+                                   {
+                                       const int a = vowelIndex (t.upToFirstOccurrenceOf (">", false, false));
+                                       if (a >= 0 && a + 1 < (int) vn.size()) return (float) a + 0.5f;
+                                   }
+                                   if (const int k = vowelIndex (t); k >= 0) return (float) k;
+                                   return t.getFloatValue();
                                })),
         choice (pid::vowelLfoRate, "Vowel LFO Rate", names (kSyncDivs), "1 Bar"),
         percent (pid::vowelLfoDepth, "Vowel LFO Depth", 0.0f),

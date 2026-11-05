@@ -302,6 +302,9 @@ void DeepTranceProcessor::setStateInformation (const void* data, int sizeInBytes
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
             dt::PresetManager::syncParametersToState (apvts);
             loadCustomShapesFromState();
+            // Tell the host every parameter may have changed, so it re-reads
+            // them (CLAP: params rescan; VST3: restart with param values changed).
+            updateHostDisplay (ChangeDetails().withProgramChanged (true));
         }
 }
 
