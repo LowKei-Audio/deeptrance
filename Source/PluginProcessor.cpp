@@ -147,6 +147,9 @@ DeepTranceProcessor::DeepTranceProcessor()
 
     resetCustomShapes();
     apvts.state.setProperty (kUiMode, "easy", nullptr);
+
+    // After a host load: snap each parameter to its exact saved value (see PresetManager).
+    stateGuard.onApplied = [this] { dt::PresetManager::syncParametersToState (apvts); };
 }
 
 bool DeepTranceProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -276,11 +279,11 @@ void DeepTranceProcessor::syncCustomShapesToState()
     }
 }
 
-void DeepTranceProcessor::loadCustomShapesFromState()
+void DeepTranceProcessor::loadCustomShapesFrom (const juce::ValueTree& root)
 {
     for (int l = 0; l < 2; ++l)
     {
-        const auto pts = juce::StringArray::fromTokens (apvts.state.getProperty (kCustomShape[l]).toString(), ",", "");
+        const auto pts = juce::StringArray::fromTokens (root.getProperty (kCustomShape[l]).toString(), ",", "");
         if (pts.size() != dt::kCustomPoints) continue; // missing/old state: keep current shape
         for (int i = 0; i < dt::kCustomPoints; ++i)
             customShapes[(size_t) l][(size_t) i].store (juce::jlimit (0.0f, 1.0f, pts[i].getFloatValue()));
@@ -290,18 +293,19 @@ void DeepTranceProcessor::loadCustomShapesFromState()
 // --- State -------------------------------------------------------------------------
 void DeepTranceProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    if (auto xml = stateGuard.getState().createXml())   // safe on any thread (see StateGuard.h)
         copyXmlToBinary (*xml, destData);
 }
 
 void DeepTranceProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
+        if (xml->hasTagName (stateGuard.stateType()))
         {
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
-            dt::PresetManager::syncParametersToState (apvts);
-            loadCustomShapesFromState();
+            const auto tree = juce::ValueTree::fromXml (*xml);
+            // Parameters at once; apvts.state itself on the message thread (onApplied).
+            stateGuard.setState (tree);
+            loadCustomShapesFrom (tree);   // atomics: safe on any thread
             // Tell the host every parameter may have changed, so it re-reads
             // them (CLAP: params rescan; VST3: restart with param values changed).
             updateHostDisplay (ChangeDetails().withProgramChanged (true));

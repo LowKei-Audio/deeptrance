@@ -2,7 +2,9 @@
 
 A trance-focused modulation and combo-effects plug-in (VST3 and CLAP, plus a Windows standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures.
 
-**Status:** v1.0.0. All six build phases are complete and validated. Final sign-off needs a listening and loading pass in the three target DAWs.
+**Status:** v1.0.1. All six build phases are complete and validated. Final sign-off needs a listening and loading pass in the three target DAWs.
+
+**1.0.1** improves stability when your DAW saves or loads a project while DeepTrance is open. Some hosts do this in the background, and in rare cases it could crash the plug-in. Your projects and presets are unchanged.
 
 - **User Guide:** [`docs/DeepTrance_User_Guide.md`](docs/DeepTrance_User_Guide.md) (also `.txt` and `.pdf`)
 - **Download:** the installer is attached to each GitHub Release, and to every successful **Build** run under *Artifacts*.
@@ -57,7 +59,7 @@ Options:
 - `DeepTranceRender <folder>` also writes one WAV per factory preset.
 - `DeepTranceTests --render <folder>` writes per-module demo WAVs.
 
-The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.0 installer\DeepTrance.iss`.
+The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.1 installer\DeepTrance.iss`.
 
 ## Project layout
 
@@ -84,7 +86,7 @@ Every push runs on Windows:
 - **clap-validator**, the official CLAP conformance suite.
 - **Installer** build.
 
-Pushing a tag such as `v1.0.0` publishes a GitHub Release with the installer attached.
+Pushing a tag such as `v1.0.1` publishes a GitHub Release with the installer attached.
 
 ## Measured performance
 

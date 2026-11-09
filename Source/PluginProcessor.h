@@ -2,6 +2,7 @@
 
 #include "DSP/DeepTranceEngine.h"
 #include "Presets/PresetManager.h"
+#include "State/StateGuard.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 class DeepTranceProcessor final : public juce::AudioProcessor
@@ -59,9 +60,11 @@ private:
     void updateEngineParams() noexcept;
     dt::TransportInfo readTransport() const;
     void syncCustomShapesToState();
-    void loadCustomShapesFromState();
+    void loadCustomShapesFromState() { loadCustomShapesFrom (apvts.state); }
+    void loadCustomShapesFrom (const juce::ValueTree& root);   // the live tree, or a state being loaded
 
     juce::AudioProcessorValueTreeState apvts;
+    lowkei::StateGuard stateGuard { apvts };   // host save/load off the message thread
     dt::PresetManager presets;
     dt::DeepTranceEngine engine;
     juce::AudioBuffer<float> monoScratch; // right channel for mono layouts
