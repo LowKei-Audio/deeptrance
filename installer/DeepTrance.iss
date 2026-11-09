@@ -1,10 +1,10 @@
 ; DeepTrance Windows installer (Inno Setup 6).
-; Built by CI: iscc /DAppVersion=1.0.0 /DBuildDir=..\build installer\DeepTrance.iss
+; Built by CI: iscc /DAppVersion=1.0.1 /DBuildDir=..\build installer\DeepTrance.iss
 ; Installs the VST3 and CLAP plug-ins to the standard shared folders (all DAWs
 ; scan them) and, optionally, the standalone app with a Start menu shortcut.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\build"
