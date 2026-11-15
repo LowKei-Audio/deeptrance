@@ -4,8 +4,12 @@ A trance-focused modulation and combo-effects plug-in (VST3 and CLAP, plus a Win
 standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads,
 plucks, leads and vocals into moving, euphoric trance textures.
 
-Status: v1.0.2. All six build phases are complete and validated. Final sign-off needs a
+Status: v1.0.3. All six build phases are complete and validated. Final sign-off needs a
 listening and loading pass in the three target DAWs.
+
+1.0.3 smooths fast synced LFOs and Astral across loop wraps. When your DAW loops round,
+they now glide on from exactly where they were, and a fast LFO (1/16, 1/32) glides over
+about one of its own cycles, so it never sweeps faster than drawn.
 
 1.0.2 removes clicks and static:
 
@@ -100,7 +104,7 @@ Options:
 -   DeepTranceTests --render <folder> writes per-module demo WAVs.
 
 The installer is built with Inno Setup 6:
-iscc /DAppVersion=1.0.2 installer\DeepTrance.iss.
+iscc /DAppVersion=1.0.3 installer\DeepTrance.iss.
 
 Project layout
 
@@ -126,7 +130,7 @@ Every push runs on Windows:
 -   Static checks: loop wraps, wraps with a stopped block, restarts and sound changes
     across every factory preset, host program and saved state, measured for clicks against
     the sound’s own sharpest moment. Unit tests reproduce the 1.0.1 Swirl loop-wrap and
-    Abyss Decay clicks and fail on the old code.
+    Abyss Decay clicks, and the 1.0.2 fast-LFO loop-wrap step, and fail on the old code.
 -   Preset renderer: all 26 factory presets through the real processor (finite, sane
     loudness).
 -   pluginval at strictness level 10.
@@ -134,9 +138,9 @@ Every push runs on Windows:
 -   clap-validator, the official CLAP conformance suite.
 -   Installer build.
 
-Pushing a tag such as v1.0.2 publishes a GitHub Release with the installer attached. A
+Pushing a tag such as v1.0.3 publishes a GitHub Release with the installer attached. A
 release can also be made from the Build workflow’s Run workflow button by entering a tag
-(for example v1.0.2); the Windows job waits for the Linux tests, so nothing is published
+(for example v1.0.3); the Windows job waits for the Linux tests, so nothing is published
 unless every check passes.
 
 Documentation: this README also ships as README.txt and README.pdf. Regenerate both with

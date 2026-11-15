@@ -1,14 +1,20 @@
 # DeepTrance User Guide
 
-**Version 1.0.0 · VST3, CLAP and standalone for Windows · by LowKei**
+**Version 1.0.3 · VST3, CLAP and standalone for Windows · by LowKei**
 
 DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures. It combines rhythmic gating, swirling modulation, vowel filtering, tape drift, acid grit, granular clouds, fractal echoes and an infinite reverb in one plug-in, with performance macros you can ride live or automate.
+
+**What's new**
+
+- **1.0.3:** fast synced LFOs and Astral glide smoothly across loop wraps.
+- **1.0.2:** no more clicks or static when your DAW loops, jumps or restarts playback, when you change presets or load a project while music plays, when you turn Abyss Decay or Damping over a tail, or when Punch hears a sound fade back in.
+- **1.0.1:** better stability when your DAW saves or loads a project while DeepTrance is open.
 
 ---
 
 ## 1. Installing
 
-1. Run **DeepTrance-1.0.0-Windows-Setup.exe**.
+1. Run **DeepTrance-1.0.3-Windows-Setup.exe**.
 2. Choose **VST3 and CLAP plug-ins and standalone app**, or **Plug-ins only**.
 3. Open your DAW and rescan plug-ins:
    - **Ableton Live:** Settings > Plug-Ins > turn on *Use VST3 Plug-In System Folders* > *Rescan*.
@@ -202,13 +208,14 @@ Measured CPU use (48 kHz, one core):
 | The gate is out of time | DeepTrance follows the DAW tempo. With the transport stopped it keeps running at the last tempo; press play to lock it to the grid. |
 | A frozen sound will not stop | Click **FREEZE ABYSS** or **FREEZE CLOUD** again, or switch that module off. |
 | Too much low end in the reverb | Raise **Abyss Damping**, or use **Punch** to duck the tail. |
+| A click when a loop wraps or a preset changes | Update to 1.0.3 or later: loop wraps, restarts and preset changes are click-free there. |
 | The standalone app makes no sound | Click *Options* > *Audio/MIDI Settings* and choose your audio device and input. |
 
 ---
 
 ## 12. Specifications
 
-- **Format:** VST3 (64-bit) and standalone, Windows 10/11
+- **Format:** VST3 and CLAP (64-bit) and standalone, Windows 10/11
 - **Supported hosts:** Ableton Live, FL Studio, Serato Studio
 - **Channels:** stereo or mono
 - **Sample rates:** 44.1 to 192 kHz

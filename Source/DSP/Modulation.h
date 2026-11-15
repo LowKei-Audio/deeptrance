@@ -47,7 +47,10 @@ public:
             // Synced: eases across playhead jumps (a loop wrapping round) instead of
             // moving every destination at once.
             if (clk.jumped()) glide.arm();
-            const double pos = glide.next (clk.ppqAt (0) / q, n);
+            const double raw = clk.ppqAt (0) / q;
+            glide.setCycleSeconds (q * 60.0 / clk.getBpm());
+            const double pos = glide.next (raw, n);
+            glide.expect (raw + glide.offsetNow() + clk.ppqAt (n) / q - clk.ppqAt (0) / q);
             cycle = (int64_t) std::floor (pos);
             phase = pos - (double) cycle;
         }
