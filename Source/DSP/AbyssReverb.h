@@ -72,5 +72,10 @@ private:
 
     Smoother    sizeSm, mixSm, freezeSm, shimmerSm, preDelaySm, widthSm, modSm;
     float       decaySec = 6.0f, dampCoef = 0.3f;
+    // The loop's gains move per sample, from last block's values to this block's: a gain
+    // that stepped (Decay or Damping changed, a preset loaded) put a step into the tank,
+    // which came back out of every line as a click tens of ms later. Decay also glides.
+    float       decayCur = -1.0f, gCur[kLines] {}, aCur = 0.0f, levelCur = 1.0f, shimCur = 0.0f;
+    bool        loopPrimed = false;
 };
 } // namespace dt

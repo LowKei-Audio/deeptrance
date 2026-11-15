@@ -38,6 +38,7 @@ void VowelFilter::formantsFor (float morph, float freqs[kNumFormants], float out
 void VowelFilter::prepare (double newSampleRate)
 {
     sampleRate = newSampleRate;
+    glide.prepare (sampleRate);
     for (auto* s : { &morphSm, &depthSm, &mixSm, &resSm }) s->prepare (sampleRate, 0.03);
     morphSm.setImmediate (params.morph);
     depthSm.setImmediate (params.lfoDepth);
@@ -50,6 +51,7 @@ void VowelFilter::reset() noexcept
 {
     for (auto& ch : state) for (auto& s : ch) s.reset();
     coeffCountdown = 0;
+    glide.reset();
 }
 
 void VowelFilter::setParams (const VowelParams& p) noexcept
@@ -78,6 +80,7 @@ void VowelFilter::updateCoeffs (float morph) noexcept
 void VowelFilter::process (float* left, float* right, int numSamples, const TransportClock& clock) noexcept
 {
     const double cycleQuarters = syncQuarters (params.lfoRate);
+    if (clock.jumped()) glide.arm();
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -87,9 +90,13 @@ void VowelFilter::process (float* left, float* right, int numSamples, const Tran
         resSm.next();
 
         // Control-rate coefficient updates (every 8 samples) keep CPU low.
-        if (--coeffCountdown <= 0)
+        // The LFO position is tracked every sample, so a jump eases from where it was.
+        const double lfoPos = glide.next (clock.ppqAt (i) / cycleQuarters);
+        // Every 8 samples normally; every sample while gliding across a jump, when the
+        // sweep is fast and 8-sample steps would zipper.
+        if (--coeffCountdown <= 0 || glide.gliding)
         {
-            const float lfo = (float) std::sin (kTwoPiD * wrap01 (clock.ppqAt (i) / cycleQuarters));
+            const float lfo = (float) std::sin (kTwoPiD * wrap01 (lfoPos));
             updateCoeffs (base + depth * 2.0f * lfo);
             coeffCountdown = 8;
         }

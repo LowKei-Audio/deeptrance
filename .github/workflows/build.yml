@@ -6,6 +6,11 @@ on:
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a release with this tag, for example v1.0.2 (leave empty for a plain build)"
+        required: false
+        default: ""
 
 permissions:
   contents: write # needed only by the release step (tags)
@@ -28,6 +33,7 @@ jobs:
 
   # The real product: Windows VST3 + CLAP + Standalone, validated, packaged.
   windows:
+    needs: dsp-tests   # nothing is built or published unless the Linux tests pass
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,9 +97,13 @@ jobs:
             build/DeepTrance_artefacts/Release/Standalone/DeepTrance.exe
             installer/Output/*.exe
 
-      - name: Publish release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # On a pushed v* tag, or a manual run given a release_tag (creates the tag at this commit).
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: "${{ inputs.release_tag || github.ref_name }}"
+          target_commitish: "${{ github.sha }}"
+          name: "DeepTrance ${{ inputs.release_tag || github.ref_name }}"
           files: installer/Output/*.exe
           generate_release_notes: true

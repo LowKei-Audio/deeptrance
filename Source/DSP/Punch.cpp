@@ -9,6 +9,7 @@ void Punch::prepare (double newSampleRate)
     fastRel = onePoleCoef (30.0f, sampleRate);
     slowAtt = onePoleCoef (15.0f, sampleRate);
     slowRel = onePoleCoef (180.0f, sampleRate);
+    holdCoef = onePoleCoef (5.0f, sampleRate);
     amountStep = 1.0f / (float) std::max (1.0, sampleRate * 0.015);
     for (auto* s : { &attackSm, &sustainSm, &duckSm }) s->prepare (sampleRate, 0.03);
     attackSm.setImmediate (params.attack);
@@ -51,8 +52,20 @@ void Punch::process (float* left, float* right, int numSamples, float* duckOut) 
         const float dk  = duckSm.next() * amount;
 
         const float lvl = std::max (std::fabs (left[i]), std::fabs (right[i]));
-        fastEnv = lvl + (lvl > fastEnv ? fastAtt : fastRel) * (fastEnv - lvl);
-        slowEnv = lvl + (lvl > slowEnv ? slowAtt : slowRel) * (slowEnv - lvl);
+        // A sound-change fade is never taken for a hit: the detector eases to neutral (no
+        // shaping, no duck) over ~5 ms, and when the fade is over it starts again from the
+        // level actually there, so it neither jumps nor sees a false attack.
+        if (detectorHold)
+        {
+            slowEnv = fastEnv + holdCoef * (slowEnv - fastEnv);
+            heldLast = true;
+        }
+        else
+        {
+            if (heldLast) { fastEnv = slowEnv = lvl; heldLast = false; }
+            fastEnv = lvl + (lvl > fastEnv ? fastAtt : fastRel) * (fastEnv - lvl);
+            slowEnv = lvl + (lvl > slowEnv ? slowAtt : slowRel) * (slowEnv - lvl);
+        }
 
         // Positive while the level is rising faster than the slow follower (an attack),
         // negative in the decaying body of the sound.

@@ -801,6 +801,90 @@ void renderDemos (const std::string& dir)
         std::printf ("  wrote %s\n", f.c_str());
     }
 }
+// --- static (Serato report, Nov 2026) --------------------------------------------
+// Engine-level regressions for clicks heard on loop wraps and sound changes; each fails
+// on 1.0.1. The plugin-level static check (every preset, wraps, restarts, preset and
+// state changes through the real processor) is in DeepTranceRender.
+
+/** Held tone with harmonics, faded in over 50 ms. */
+Stereo heldTone (double sr, double seconds)
+{
+    Stereo s ((size_t) (sr * seconds));
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        const double ph = kTwoPiD * 233.08 * (double) i / sr;
+        const float v = (float) (0.3 * std::min (1.0, (double) i / 2400.0) * (std::sin (ph) + 0.4 * std::sin (2 * ph) + 0.2 * std::sin (3 * ph)));
+        s.l[i] = s.r[i] = v;
+    }
+    return s;
+}
+
+/** Sharpest fourth difference in [from, to): a step or a kink stands out of it. */
+float sharpest4 (const Stereo& s, size_t from, size_t to)
+{
+    float m = 0.0f;
+    for (size_t i = std::max<size_t> (from, 4); i < std::min (to, s.size()); ++i)
+        for (const auto* x : { &s.l, &s.r })
+            m = std::max (m, std::fabs ((*x)[i] - 4 * (*x)[i - 1] + 6 * (*x)[i - 2] - 4 * (*x)[i - 3] + (*x)[i - 4]));
+    return m;
+}
+
+float spikeRatio (const Stereo& s, size_t at, size_t window)
+{
+    const float ref = std::max ({ sharpest4 (s, at / 4, at - 1024), sharpest4 (s, at + window + 1024, s.size()), 1.0e-3f });
+    return sharpest4 (s, at - 16, at + window) / ref;
+}
+
+void testStatic()
+{
+    section ("static: loop wraps and parameter jumps stay click-free");
+    const double sr = 48000.0;
+
+    // Swirl (on by default, synced): a host loop wrapping round mid-sweep.
+    {
+        EngineParams p = allOff();
+        // 2-bar sweep (the default) and a 4-beat loop: each wrap jumps it half a cycle.
+        p.swirlOn = true; p.swirl.mix = 1.0f; p.swirl.depth = 1.0f; p.swirl.rateIndex = 5;
+        p.swirl.mode = SwirlMode::Both;
+        DeepTranceEngine e;
+        e.setParams (p); e.prepare (sr);
+        Stereo s = heldTone (sr, 4.0);
+        TransportInfo t; t.bpm = 120.0; t.isPlaying = true; t.hasPpq = true;
+        const size_t wrap = (size_t) (2.0 * sr) + 96;
+        for (size_t off = 0; off < s.size(); off += 512)
+        {
+            const int n = (int) std::min<size_t> (512, s.size() - off);
+            if (off <= wrap && wrap < off + 512) t.ppqAtBlockStart = 0.0;   // loop wraps round
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+        }
+        const float r = spikeRatio (s, (wrap / 512) * 512, 4096);
+        std::printf ("  synced Swirl across a loop wrap: spike %.2f\n", (double) r);
+        CHECK (r < 2.5f, "a loop wrap should not click the Swirl sweep (%.2f)", (double) r);
+    }
+
+    // Abyss: Decay and Damping jumped over a ringing tail (automation, a knob grab).
+    // 1.0.1 stepped the tank's feedback and damping gains, which clicked.
+    {
+        EngineParams p = allOff();
+        p.abyssOn = true; p.abyss.mix = 1.0f; p.abyss.decaySec = 20.0f; p.abyss.damping = 0.1f;
+        DeepTranceEngine e;
+        e.setParams (p); e.prepare (sr);
+        Stereo s = heldTone (sr, 3.0);
+        const size_t change = (size_t) (1.5 * sr) / 512 * 512;   // on a block boundary, as a host delivers it
+        TransportInfo t;
+        for (size_t off = 0; off < s.size(); off += 512)
+        {
+            if (off == change) { p.abyss.decaySec = 0.5f; p.abyss.damping = 0.9f; e.setParams (p); }
+            e.process (&s.l[off], &s.r[off], (int) std::min<size_t> (512, s.size() - off), t);
+        }
+        // The tank recirculates a step for tens of ms: look 150 ms past the change.
+        const float r = spikeRatio (s, change, (size_t) (0.15 * sr));
+        std::printf ("  Abyss Decay 20 s -> 0.5 s, Damping 0.1 -> 0.9 over a tail: spike %.2f\n", (double) r);
+        CHECK (r < 1.5f, "jumping Abyss Decay/Damping over a tail should not click (%.2f)", (double) r);
+    }
+}
+
 } // namespace
 
 int main (int argc, char** argv)
@@ -820,6 +904,7 @@ int main (int argc, char** argv)
     testAcid();
     testBuildUpAndCombos();
     testCpu();
+    testStatic();
 
     if (argc == 3 && std::string (argv[1]) == "--render")
         renderDemos (argv[2]);

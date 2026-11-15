@@ -24,6 +24,46 @@ inline float dbToGain (float db) noexcept                  { return std::pow (10
 /** Wraps a phase into [0, 1). */
 inline double wrap01 (double x) noexcept { return x - std::floor (x); }
 
+/** Eases a cyclic position (in cycles) across a playhead jump: arm() at the jump,
+    then the position continues from where it was and glides onto the new one, the
+    shortest way round, over ~40 ms. A snap moves a sweep, a vowel or an LFO target
+    in one sample, which is heard as a click. */
+struct CycleGlide
+{
+    void prepare (double sampleRate) noexcept { sr = sampleRate; reset(); }
+    void reset() noexcept { offset = last = progress = 0.0; armed = gliding = primed = false; }
+    void arm() noexcept { armed = primed; }
+    /** cycles: the target position now; samples: how far this call advances. */
+    double next (double cycles, int samples = 1) noexcept
+    {
+        if (armed)
+        {
+            // Start from where we are, so the sweep neither steps nor changes speed.
+            double d = last - cycles;
+            d -= std::round (d);   // the shorter way round the cycle
+            offset = d;
+            progress = 0.0;
+            gliding = std::abs (d) > 1.0e-9;
+            armed = false;
+        }
+        double out = cycles;
+        if (gliding)
+        {
+            // Smootherstep ease over kGlideSec: zero extra speed at both ends, no kink.
+            const double x = std::min (1.0, progress);
+            out += offset * (1.0 - x * x * x * (x * (6.0 * x - 15.0) + 10.0));
+            progress += (double) samples / (kGlideSec * sr);
+            if (x >= 1.0) { offset = 0.0; gliding = false; }
+        }
+        last = out;
+        primed = true;
+        return out;
+    }
+    static constexpr double kGlideSec = 0.04;
+    double sr = 44100.0, offset = 0.0, last = 0.0, progress = 0.0;
+    bool armed = false, gliding = false, primed = false;
+};
+
 /** Coefficient for a one-pole smoother reaching ~63% in `ms` milliseconds. */
 inline float onePoleCoef (float ms, double sampleRate) noexcept
 {
