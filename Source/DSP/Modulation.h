@@ -32,8 +32,8 @@ struct LfoParams
 class Lfo
 {
 public:
-    void prepare (double sr) noexcept { sampleRate = sr; reset(); }
-    void reset() noexcept { freePhase = 0.0; freeCycle = 0; lastCycle = INT64_MIN; prevRand = nextRand = 0.0f; }
+    void prepare (double sr) noexcept { sampleRate = sr; glide.prepare (sr); reset(); }
+    void reset() noexcept { freePhase = 0.0; freeCycle = 0; lastCycle = INT64_MIN; prevRand = nextRand = 0.0f; glide.reset(); }
     void setParams (const LfoParams& p) noexcept { params = p; }
 
     /** Bipolar value (-1..1) at the start of the chunk; advances the free-running phase by n samples. */
@@ -44,7 +44,10 @@ public:
         if (params.sync)
         {
             const double q   = kLfoDivs[(size_t) std::clamp (params.syncIndex, 0, (int) kLfoDivs.size() - 1)].quarters;
-            const double pos = clk.ppqAt (0) / q;
+            // Synced: eases across playhead jumps (a loop wrapping round) instead of
+            // moving every destination at once.
+            if (clk.jumped()) glide.arm();
+            const double pos = glide.next (clk.ppqAt (0) / q, n);
             cycle = (int64_t) std::floor (pos);
             phase = pos - (double) cycle;
         }
@@ -96,6 +99,7 @@ private:
     LfoParams params;
     double    freePhase = 0.0;
     int64_t   freeCycle = 0, lastCycle = INT64_MIN;
+    CycleGlide glide;   // the synced position across playhead jumps
     float     prevRand = 0.0f, nextRand = 0.0f, value = 0.0f;
     Random    rng { 0x1F0u };
 };

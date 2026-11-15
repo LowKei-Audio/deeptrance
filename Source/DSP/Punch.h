@@ -27,6 +27,9 @@ public:
     void setParams (const PunchParams& p) noexcept;
     void setEnabled (bool on) noexcept { enabled = on; }
     void snapEnabled() noexcept        { amount = enabled ? 1.0f : 0.0f; }
+    /** True while the engine fades a sound change in or out: the detector holds still, so
+        that fade is neither punched nor allowed to duck the tails. */
+    void setDetectorHold (bool hold) noexcept { detectorHold = hold; }
     bool isIdle() const noexcept       { return ! enabled && amount <= 0.0f; }
 
     /** Shapes left/right in place and writes the wet-duck gain (0..1) for each sample. */
@@ -35,7 +38,8 @@ public:
 private:
     double      sampleRate = 44100.0;
     PunchParams params;
-    bool        enabled = false;
+    bool        enabled = false, detectorHold = false, heldLast = false;
+    float       holdCoef = 0.99f;
     float       amount = 0.0f, amountStep = 0.001f;
     float       fastEnv = 0.0f, slowEnv = 0.0f, duckEnv = 0.0f;
     float       fastAtt = 0, fastRel = 0, slowAtt = 0, slowRel = 0, duckRel = 0;

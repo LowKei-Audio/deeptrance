@@ -1,6 +1,9 @@
 // Renders every factory preset through the real plugin processor (parameter
 // layout, bindings, preset loading, engine) and checks the result is sane.
 // Usage: DeepTranceRender [outputDir]   (writes one WAV per preset when given)
+//        DeepTranceRender --static [v]   the static check alone: loop wraps, restarts
+//                                        and sound changes while playing (v: every event)
+// The default run ends with the static check too.
 
 #include "PluginProcessor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -42,11 +45,167 @@ namespace
             return p;
         }
     };
+
+    // ---- Static (Serato report, Nov 2026) ---------------------------------------
+    // Clicks on loop wraps, transport restarts and sound changes. A held, harmonically
+    // rich tone plays through the real processor with a scripted host playhead; a click
+    // shows up as a spike in the fourth difference of the output (steps and kinks stand
+    // out of it at any level, a smooth sound's own curve does not), measured against
+    // the sharpest moment each sound makes on its own.
+    struct StaticRun
+    {
+        static constexpr double fs = 48000.0;
+        static constexpr int block = 512;
+        struct ScriptedHead final : juce::AudioPlayHead
+        {
+            double ppq = 0.0, bpm = 138.0; bool playing = true;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo p;
+                p.setBpm (bpm);
+                p.setPpqPosition (ppq);
+                p.setIsPlaying (playing);
+                return p;
+            }
+        };
+        DeepTranceProcessor& p;
+        ScriptedHead head;
+        std::vector<float> l, r;
+        double phase = 0.0;
+        explicit StaticRun (DeepTranceProcessor& proc) : p (proc) { p.setPlayHead (&head); }
+        ~StaticRun() { p.setPlayHead (nullptr); }
+
+        void play (int blocks, bool advance = true)
+        {
+            juce::AudioBuffer<float> buf (2, block);
+            juce::MidiBuffer midi;
+            for (int b = 0; b < blocks; ++b)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const double fadeIn = std::min (1.0, (double) (l.size() + (size_t) i) / 2400.0);
+                    const float v = (float) (0.3 * fadeIn * (std::sin (phase) + 0.4 * std::sin (2 * phase) + 0.2 * std::sin (3 * phase)));
+                    phase += 2.0 * juce::MathConstants<double>::pi * 233.08 / fs;
+                    buf.setSample (0, i, v); buf.setSample (1, i, v);
+                }
+                p.processBlock (buf, midi);
+                l.insert (l.end(), buf.getReadPointer (0), buf.getReadPointer (0) + block);
+                r.insert (r.end(), buf.getReadPointer (1), buf.getReadPointer (1) + block);
+                if (advance && head.playing) head.ppq += block * head.bpm / (60.0 * fs);
+            }
+        }
+        float d (int i) const
+        {
+            if (i < 4 || i >= (int) l.size()) return 0.0f;
+            auto d4 = [i] (const std::vector<float>& x) { const auto k = (size_t) i; return std::abs (x[k] - 4 * x[k - 1] + 6 * x[k - 2] - 4 * x[k - 3] + x[k - 4]); };
+            return std::max (d4 (l), d4 (r));
+        }
+        // The event at `at` (+ `after` samples) against the sound's sharpest moments
+        // before and after it. Floor: a step under ~-75 dBFS under a loud tone is no click.
+        float spike (int at, int after, int refBefore, int refAfter) const
+        {
+            float ref = 1.0e-3f, m = 0.0f;
+            for (int i = at - refBefore; i < at - 2 * block; ++i) ref = std::max (ref, d (i));
+            for (int i = at + after + block; i < at + after + refAfter; ++i) ref = std::max (ref, d (i));
+            for (int i = at - 16; i < at + after; ++i) m = std::max (m, d (i));
+            return m / ref;
+        }
+        bool finite() const
+        {
+            for (size_t i = 0; i < l.size(); ++i) if (! std::isfinite (l[i]) || ! std::isfinite (r[i])) return false;
+            return true;
+        }
+    };
+
+    std::unique_ptr<DeepTranceProcessor> makeStaticProcessor()
+    {
+        auto p = std::make_unique<DeepTranceProcessor>();
+        p->setPlayConfigDetails (2, 2, StaticRun::fs, StaticRun::block);
+        p->prepareToPlay (StaticRun::fs, StaticRun::block);
+        return p;
+    }
+
+    int runStaticCheck (bool verbose)
+    {
+        std::printf ("\nStatic: loop wraps, restarts and sound changes\n");
+        constexpr float kChangeLimit = 1.25f, kWrapLimit = 2.5f;
+        float worstWrap = 0, worstRestart = 0, worstChange = 0;
+        int bad = 0;
+        auto report = [&] (const juce::String& what, float ratio, float limit, float& worst)
+        {
+            worst = std::max (worst, ratio);
+            const bool ok = ratio < limit;
+            if (! ok) ++bad;
+            if (! ok || verbose) std::printf ("    %-56s %8.2f %s\n", what.toRawUTF8(), (double) ratio, ok ? "ok" : "CLICK");
+        };
+
+        // 1. Loop wraps and restarts over sound, for every factory preset. The loop is
+        //    4 beats; at 138 BPM that is 1.74 s.
+        const int numPresets = makeStaticProcessor()->getNumPrograms();
+        const int loopBlocks = (int) (4 * 60.0 / 138.0 * StaticRun::fs) / StaticRun::block;
+        for (int k = 0; k < numPresets; ++k)
+            for (int kind = 0; kind < 3; ++kind)   // 0 wrap, 1 wrap with a "stopped" block, 2 restart
+            {
+                auto p = makeStaticProcessor();
+                p->setCurrentProgram (k);
+                p->prepareToPlay (StaticRun::fs, StaticRun::block);
+                StaticRun run (*p);
+                run.play (loopBlocks);
+                const int at = (int) run.l.size();
+                if (kind == 0) run.head.ppq = 0.0;
+                if (kind == 1) { run.head.playing = false; run.play (1, false); run.head.playing = true; run.head.ppq = 0.0; }
+                if (kind == 2) { run.head.playing = false; run.play (8, false); run.head.playing = true; run.head.ppq = 1.0; }
+                run.play (loopBlocks);
+                if (! run.finite()) { ++bad; std::printf ("    %s: NaN/Inf\n", p->getProgramName (k).toRawUTF8()); continue; }
+                const int window = kind == 2 ? 10 * StaticRun::block : 3 * StaticRun::block;
+                const int ref = loopBlocks * StaticRun::block * 3 / 4;
+                static const char* kinds[] = { "wrap", "wrap + stopped block", "restart" };
+                report (p->getProgramName (k) + ": " + kinds[kind], run.spike (at, window, ref, ref), kWrapLimit,
+                        kind <= 1 ? worstWrap : worstRestart);
+            }
+
+        // 2. Sound changes while playing: every factory preset (the host program list),
+        //    and host state loads (Serato's own preset browser loads that way).
+        {
+            auto p = makeStaticProcessor();
+            StaticRun run (*p);
+            const int segment = 112;   // ~1.2 s per sound
+            std::vector<std::pair<int, juce::String>> changes;
+            auto change = [&] (const juce::String& name, const std::function<void()>& f)
+            {
+                changes.push_back ({ (int) run.l.size(), name });
+                f();
+                run.play (segment);
+            };
+            run.play (segment);
+            for (int k = 1; k < numPresets; ++k)
+                change ("preset " + p->getProgramName (k), [&] { p->setCurrentProgram (k); });
+            change ("preset " + p->getProgramName (0), [&] { p->setCurrentProgram (0); });
+            for (int k : { 3, numPresets / 2, numPresets - 1 })
+            {
+                auto other = makeStaticProcessor();
+                other->setCurrentProgram (k);
+                juce::MemoryBlock mb;
+                other->getStateInformation (mb);
+                change ("host state load (" + other->getProgramName (k) + ")", [&, mb] { p->setStateInformation (mb.getData(), (int) mb.getSize()); });
+            }
+            if (! run.finite()) { ++bad; std::printf ("    NaN/Inf in sound changes\n"); }
+            const int seg = segment * StaticRun::block;
+            for (const auto& [at, name] : changes)
+                report (name, run.spike (at, 8 * StaticRun::block, seg - 8 * StaticRun::block, seg - 10 * StaticRun::block), kChangeLimit, worstChange);
+        }
+
+        std::printf ("    worst: wrap %.2f, restart %.2f, sound change %.2f\n", (double) worstWrap, (double) worstRestart, (double) worstChange);
+        std::printf (bad == 0 ? "STATIC OK\n" : "STATIC: %d EVENT(S) OVER THE LIMIT\n", bad);
+        return bad;
+    }
 }
 
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
+    if (argc > 1 && juce::String (argv[1]) == "--static")   // the static check alone ("v": every event)
+        return runStaticCheck (argc > 2 && juce::String (argv[2]) == "v") == 0 ? 0 : 1;
     const double sr = 48000.0;
     const int block = 512;
     const juce::File outDir = argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]) : juce::File();
@@ -105,5 +264,7 @@ int main (int argc, char** argv)
     }
 
     std::printf (failures == 0 ? "\nALL %d PRESETS OK\n" : "\n%d PRESET(S) FAILED\n", failures == 0 ? proc.getNumPrograms() : failures);
-    return failures == 0 ? 0 : 1;
+    proc.setPlayHead (nullptr);
+    const int clicks = runStaticCheck (false);
+    return failures == 0 && clicks == 0 ? 0 : 1;
 }

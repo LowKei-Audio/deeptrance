@@ -85,6 +85,8 @@ void AbyssReverb::prepare (double newSampleRate)
 
 void AbyssReverb::clearState() noexcept
 {
+    loopPrimed = false;
+    decayCur = -1.0f;
     for (auto& p : preDelay) p.reset();
     for (auto& ch : diffusers) for (auto& d : ch) d.line.reset();
     for (auto& s : inHp) s.reset();
@@ -133,12 +135,16 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
     if (spill.skipBlock (wake)) return;
     if (wake) clearState();
 
-    // Per-block decay gains from the current size (size moves slowly, so this is smooth).
-    float g[kLines], g2 = 0.0f;
+    // Per-block decay gains from the current size and a gliding decay; every gain then
+    // ramps to its target across the block.
+    if (decayCur < 0.0f) decayCur = decaySec;
+    decayCur += (decaySec - decayCur) * (1.0f - std::exp (-(float) numSamples / (0.1f * (float) sampleRate)));
+    float g[kLines], gStep[kLines], g2 = 0.0f;
     const float factor = sizeFactor (sizeSm.next());
+    const float perSample = 1.0f / (float) std::max (1, numSamples);
     for (int i = 0; i < kLines; ++i)
     {
-        g[i] = std::pow (10.0f, -3.0f * baseLen[i] * factor / (decaySec * (float) sampleRate));
+        g[i] = std::pow (10.0f, -3.0f * baseLen[i] * factor / (decayCur * (float) sampleRate));
         g2 += g[i] * g[i] / (float) kLines;
     }
 
@@ -151,6 +157,15 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
     constexpr float kRefHeadroom = 0.2f;
     const float levelComp  = std::sqrt (headroom / kRefHeadroom);
     const float shimLoop   = kShimmerLoop * headroom / (4.0f * kOutScale);
+    if (! loopPrimed)
+    {
+        for (int i = 0; i < kLines; ++i) gCur[i] = g[i];
+        aCur = dampCoef; levelCur = levelComp; shimCur = shimLoop;
+        loopPrimed = true;
+    }
+    for (int i = 0; i < kLines; ++i) gStep[i] = (g[i] - gCur[i]) * perSample;
+    const float aStep = (dampCoef - aCur) * perSample, levelStep = (levelComp - levelCur) * perSample,
+                shimStep = (shimLoop - shimCur) * perSample;
 
     const float maxMod = kMaxModMs * 0.001f * (float) sampleRate;
     float v[kLines], o[kLines];
@@ -158,9 +173,11 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
     for (int n = 0; n < numSamples; ++n)
     {
         const float on     = spill.nextGain();
+        aCur += aStep; levelCur += levelStep; shimCur += shimStep;
+        for (int i = 0; i < kLines; ++i) gCur[i] += gStep[i];
         const float size   = sizeFactor (sizeSm.next());
         const float freeze = freezeSm.next();
-        const float shim   = shimmerSm.next() * (1.0f - freeze) * shimLoop;
+        const float shim   = shimmerSm.next() * (1.0f - freeze) * shimCur;
         const float pd     = preDelaySm.next();
         const float width  = widthSm.next();
         const float depth  = modSm.next() * maxMod;
@@ -169,7 +186,7 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
         dryG = 1.0f + (dryG - 1.0f) * on;
 
         // Input: pre-delay -> low cut -> diffusion. Freeze mutes new input.
-        const float inGain = on * (1.0f - freeze) * kInputScale * levelComp;
+        const float inGain = on * (1.0f - freeze) * kInputScale * levelCur;
         float x[2] = { left[n] * inGain, right[n] * inGain };
         for (int c = 0; c < 2; ++c)
         {
@@ -184,7 +201,7 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
         const float shL = shim > 0.0f ? shimHp[0].process (shimmerShift[0].process (lastOut[0]), shimHpCoeffs).hp * shim : 0.0f;
         const float shR = shim > 0.0f ? shimHp[1].process (shimmerShift[1].process (lastOut[1]), shimHpCoeffs).hp * shim : 0.0f;
 
-        const float a = dampCoef * (1.0f - freeze);
+        const float a = aCur * (1.0f - freeze);
         for (int i = 0; i < kLines; ++i)
         {
             // Quadrature LFO (rotation) for cheap per-line modulation.
@@ -194,7 +211,7 @@ void AbyssReverb::process (float* left, float* right, int numSamples, const floa
 
             o[i]    = lines[i].read (baseLen[i] * size + depth * (1.0f + lfoS[i]));
             damp[i] = o[i] + a * (damp[i] - o[i]);
-            v[i]    = damp[i] * (g[i] + (1.0f - g[i]) * freeze);
+            v[i]    = damp[i] * (gCur[i] + (1.0f - gCur[i]) * freeze);
         }
 
         hadamard8 (v);

@@ -136,6 +136,11 @@ void DeepTranceEngine::prepare (double newSampleRate)
 {
     sampleRate = newSampleRate;
     clock.prepare (sampleRate);
+    params = incoming;   // whatever was loaded before this point is simply current now
+    astralGlide.prepare (sampleRate);
+    transitionOut = (float) (1.0 / (0.010 * sampleRate));   // fade to dry in 10 ms
+    transitionIn  = (float) (1.0 / (0.030 * sampleRate));   // back in over 30 ms
+    swapHoldSamples = (int) std::lround (0.010 * sampleRate);
 
     // Hand every module its real settings first: each module's prepare() snaps its
     // smoothers to its stored params, so nothing glides in from defaults on load.
@@ -164,6 +169,12 @@ void DeepTranceEngine::reset() noexcept
     envFollower.reset();
     for (auto& s : astralLp) s.reset();
     lfoOut[0] = lfoOut[1] = envOut = 0.0f;
+    astralGlide.reset();
+    seenSoundChange = soundGate.current();
+    holdingSound = false;
+    transition = transitionTarget = 0.0f;
+    swapHold = 0;
+    lastBlockPeak = 0.0f;
 
     // Start in the requested state with no fades or ramps pending.
     applyToModules (derive (params, 0.0f, 0.0f, 0.0f), true);
@@ -252,9 +263,61 @@ namespace
     Runner<Module, Call> runner (Module& m, Call c) { return { m, c }; }
 }
 
+// Start of every block: has a sound change been made since the last swap? Over silence
+// it is taken at once; otherwise the output fades to dry and the swap waits for it.
+void DeepTranceEngine::beginBlockSoundChange() noexcept
+{
+    if (holdingSound) return;
+    if (soundGate.current() == seenSoundChange && ! soundGate.busy()) return;
+    if (lastBlockPeak <= 3.0e-5f && ! soundGate.busy())
+    {
+        seenSoundChange = soundGate.current();   // nothing sounding: nothing to click
+        return;
+    }
+    holdingSound = true;
+    transitionTarget = 1.0f;
+}
+
+// The output is fully dry, every module has been fed silence for 10 ms and no change is
+// still being written: take the whole new sound at once, with no fades or glides left.
+void DeepTranceEngine::swapSound() noexcept
+{
+    seenSoundChange = soundGate.current();
+    holdingSound = false;
+    transitionTarget = 0.0f;
+    params = incoming;
+    applyToModules (derive (params, lfoOut[0], lfoOut[1], envOut), true);
+    outGainSm.setImmediate (dbToGain (clampf (params.outputGainDb, -24.0f, 24.0f)));
+    mixSm.setImmediate (sat01 (params.mix));
+    astralSm.setImmediate (params.combo == Combo::AstralProjection ? sat01 (params.comboAmount) : 0.0f);
+}
+
 void DeepTranceEngine::processChunk (float* left, float* right, int n, const TransportInfo& t) noexcept
 {
-    clock.beginBlock (t);
+    if (holdingSound && ! soundGate.busy() && transition >= 1.0f && swapHold >= swapHoldSamples)
+        swapSound();
+    clock.beginBlock (t, lastBlockPeak > 3.0e-5f);
+
+    // The sound-change fade (smootherstep: a linear fade's corners tick).
+    float fade[kChunk], feed[kChunk];
+    const bool fading = transition > 0.0f || transitionTarget > 0.0f;
+    if (fading)
+        for (int i = 0; i < n; ++i)
+        {
+            transition = transitionTarget > transition ? std::min (transitionTarget, transition + transitionOut)
+                                                       : std::max (transitionTarget, transition - transitionIn);
+            swapHold = transition >= 1.0f ? std::min (swapHold + 1, swapHoldSamples) : 0;
+            const float x = transition;
+            fade[i] = x * x * x * (x * (6.0f * x - 15.0f) + 10.0f);
+            feed[i] = 1.0f - fade[i];
+        }
+    // What each module hears fades with the output, so the swap happens on silence: no
+    // delay line, grain buffer or reverb records the instant a setting jumps.
+    const auto gateFeed = [&]
+    {
+        if (fading)
+            for (int i = 0; i < n; ++i) { left[i] *= feed[i]; right[i] *= feed[i]; }
+    };
 
     // Input gain, then keep a dry copy for the global mix.
     for (int i = 0; i < n; ++i)
@@ -274,23 +337,35 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
 
     // Insert chain.
     const auto& clk = clock;
+    gateFeed();
     runModule (gateFader,  left, right, n, runner (gate,    [&clk] (TranceGate& m, float* l, float* r, int k) { m.process (l, r, k, clk); }));
+    gateFeed();
     runModule (vowelFader, left, right, n, runner (vowel,   [&clk] (VowelFilter& m, float* l, float* r, int k) { m.process (l, r, k, clk); }));
+    gateFeed();
     runModule (swirlFader, left, right, n, runner (swirl,   [&clk] (Swirl& m, float* l, float* r, int k) { m.process (l, r, k, clk); }));
+    gateFeed();
     runModule (driftFader, left, right, n, runner (drift,   [] (Drift& m, float* l, float* r, int k) { m.process (l, r, k); }));
+    gateFeed();
     runModule (acidFader,  left, right, n, runner (acid,    [] (AcidFilter& m, float* l, float* r, int k) { m.process (l, r, k); }));
+    gateFeed();
     runModule (buildFader, left, right, n, runner (buildUp, [] (BuildUp& m, float* l, float* r, int k) { m.process (l, r, k); }));
 
     // Space section: Punch shapes the dry hits and ducks every wet tail after it.
+    gateFeed();
+    punch.setDetectorHold (fading);
     punch.process (left, right, n, duck.data());
+    gateFeed();
     cloud.process (left, right, n, duck.data());
+    gateFeed();
     delay.process (left, right, n, duck.data());
+    gateFeed();
     abyss.process (left, right, n, duck.data());
 
     // Astral Projection: slow 8-bar low-pass sweep (300 Hz .. 9 kHz) over everything.
     if (astralSm.getTarget() > 0.0f || astralSm.isSmoothing())
     {
-        const double ph = wrap01 (clock.ppqAt (0) / 32.0);
+        if (clock.jumped()) astralGlide.arm();
+        const double ph = wrap01 (astralGlide.next (clock.ppqAt (0) / 32.0, n));
         astralCoeffs.set (300.0f * std::pow (30.0f, 0.5f + 0.5f * (float) std::sin (kTwoPiD * ph)), 0.9f, sampleRate);
         for (int i = 0; i < n; ++i)
         {
@@ -311,6 +386,11 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
         const float out = outGainSm.next();
         left[i]  = (dryL[(size_t) i] + (left[i]  - dryL[(size_t) i]) * mix) * out;
         right[i] = (dryR[(size_t) i] + (right[i] - dryR[(size_t) i]) * mix) * out;
+        if (fading)
+        {
+            left[i]  += fade[i] * (dryL[(size_t) i] - left[i]);
+            right[i] += fade[i] * (dryR[(size_t) i] - right[i]);
+        }
     }
 
     clock.endBlock (n);
@@ -319,6 +399,10 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
 void DeepTranceEngine::process (float* left, float* right, int numSamples, const TransportInfo& transport) noexcept
 {
     ScopedFlushDenormals noDenormals;
+    beginBlockSoundChange();
+    if (! holdingSound) params = incoming;   // a held sound keeps its params until the swap
+    float peak = 0.0f;
+    for (int i = 0; i < numSamples; ++i) peak = std::max (peak, std::max (std::abs (left[i]), std::abs (right[i])));
     const double ppqPerSample = (transport.bpm > 0.0 ? transport.bpm : 138.0) / 60.0 / sampleRate;
 
     for (int offset = 0; offset < numSamples; offset += kChunk)
@@ -328,5 +412,7 @@ void DeepTranceEngine::process (float* left, float* right, int numSamples, const
         t.ppqAtBlockStart += offset * ppqPerSample; // keep host sync exact across chunks
         processChunk (left + offset, right + offset, n, t);
     }
+    for (int i = 0; i < numSamples; ++i) peak = std::max (peak, std::max (std::abs (left[i]), std::abs (right[i])));
+    lastBlockPeak = peak;
 }
 } // namespace dt

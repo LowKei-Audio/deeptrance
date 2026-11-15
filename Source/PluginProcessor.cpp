@@ -230,6 +230,9 @@ const juce::String DeepTranceProcessor::getProgramName (int i) { return presets.
 
 void DeepTranceProcessor::setCurrentProgram (int index)
 {
+    // A whole new sound: the engine fades to dry, swaps every setting at once and fades
+    // back in, so a preset never clicks or plays half of each sound.
+    lowkei::SoundChangeGate::Scope change (engine.soundGate);
     presets.loadFactory (index);
     resetCustomShapes();
     for (int l = 0; l < 2; ++l)
@@ -239,6 +242,7 @@ void DeepTranceProcessor::setCurrentProgram (int index)
 
 bool DeepTranceProcessor::loadUserPreset (const juce::File& file)
 {
+    lowkei::SoundChangeGate::Scope change (engine.soundGate);
     if (! presets.loadUser (file)) return false;
     loadCustomShapesFromState();
     return true;
@@ -299,6 +303,9 @@ void DeepTranceProcessor::getStateInformation (juce::MemoryBlock& destData)
 
 void DeepTranceProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    // A host loading a project or a preset (Serato's own browser loads this way while
+    // playing) is a sound change like any preset.
+    lowkei::SoundChangeGate::Scope change (engine.soundGate);
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (stateGuard.stateType()))
         {
