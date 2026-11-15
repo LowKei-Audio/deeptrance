@@ -43,5 +43,6 @@ private:
     float       makeup = 1.0f;
     SvfState    state[2][kNumFormants];
     int         coeffCountdown = 0;
+    CycleGlide  glide;   // the synced LFO across playhead jumps
 };
 } // namespace dt

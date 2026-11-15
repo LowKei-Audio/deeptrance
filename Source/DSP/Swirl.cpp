@@ -5,6 +5,7 @@ namespace dt
 void Swirl::prepare (double newSampleRate)
 {
     sampleRate = newSampleRate;
+    glide.prepare (sampleRate);
     for (auto& c : ch)
         c.flanger.prepare ((int) std::ceil (kFlangerMaxDelayMs * 0.001 * sampleRate) + 8);
 
@@ -28,6 +29,7 @@ void Swirl::reset() noexcept
         c.flanger.reset();
         c.phaserFb = c.flangerFb = 0.0f;
     }
+    glide.reset();
     coeffCountdown = 0;
 }
 
@@ -83,6 +85,7 @@ void Swirl::process (float* left, float* right, int numSamples, const TransportC
     const bool   synced = speed < 1.0001;
     const double freeInc = clock.getPpqPerSample() / cycleQuarters * speed;
 
+    if (clock.jumped()) glide.arm();
     for (int i = 0; i < numSamples; ++i)
     {
         const float depth = depthSm.next();
@@ -90,10 +93,14 @@ void Swirl::process (float* left, float* right, int numSamples, const TransportC
         const float low   = lowSm.next();
         const float mix   = mixSm.next();
 
-        const double phase = synced ? wrap01 (clock.ppqAt (i) / cycleQuarters)
+        // Synced, it eases across playhead jumps (a loop wrapping round) instead of
+        // snapping the sweep, and the flanger's delay, to the new position.
+        const double phase = synced ? wrap01 (glide.next (clock.ppqAt (i) / cycleQuarters))
                                     : wrap01 (freePhase + freeInc);
         freePhase = phase;
-        const bool   updateCoeffs = (--coeffCountdown <= 0);
+        // Every 8 samples normally; every sample while gliding across a jump, when the
+        // sweep is fast and 8-sample steps would zipper.
+        const bool   updateCoeffs = (--coeffCountdown <= 0) || glide.gliding;
         if (updateCoeffs) coeffCountdown = 8;
 
         for (int c = 0; c < 2; ++c)

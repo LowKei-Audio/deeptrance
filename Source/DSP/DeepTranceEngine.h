@@ -1,4 +1,5 @@
 #pragma once
+#include "../State/SoundChangeGate.h"
 // DeepTrance signal chain (fixed order):
 //
 //   Input -> Gate -> Vowel -> Swirl -> Drift -> Acid -> Build-Up (HPF + riser)
@@ -91,7 +92,17 @@ public:
 
     void prepare (double sampleRate);
     void reset() noexcept;
-    void setParams (const EngineParams& p) noexcept { params = p; }
+    /** The params to use. Taken at the start of the next process() call, unless a sound
+        change is fading out: then the old sound keeps its params until the swap. */
+    void setParams (const EngineParams& p) noexcept { incoming = p; }
+
+    /** Sound changes: wrap every bulk parameter change (preset, host program, state load)
+        in a lowkei::SoundChangeGate::Scope on this gate (the processor does). The engine
+        keeps the old sound, fades to dry (10 ms), feeds every module silence for 10 ms,
+        takes every new setting at once and fades back in (30 ms). Over silence the
+        change is taken at once. */
+    lowkei::SoundChangeGate soundGate;
+    float soundTransition() const noexcept { return transition; }   // for tests: 1 = fully dry
 
     /** Stereo, in-place. Real-time safe. */
     void process (float* left, float* right, int numSamples, const TransportInfo& transport) noexcept;
@@ -115,8 +126,19 @@ private:
     template <typename Fn>
     void runModule (ModuleFader& fader, float* l, float* r, int n, Fn&& process) noexcept;
 
+    void beginBlockSoundChange() noexcept;
+    void swapSound() noexcept;
+
     double       sampleRate = 44100.0;
-    EngineParams params;
+    EngineParams params, incoming;
+
+    // Sound change state (audio thread). transition: 0 = normal, 1 = fully dry.
+    uint32_t seenSoundChange = 0;
+    bool  holdingSound = false;
+    float transition = 0.0f, transitionTarget = 0.0f, transitionOut = 0.0f, transitionIn = 0.0f;
+    int   swapHold = 0, swapHoldSamples = 480;
+    float lastBlockPeak = 0.0f;   // in or out, last block: is anything sounding?
+    CycleGlide astralGlide;       // Astral Projection's sweep across playhead jumps
 
     TransportClock clock;
     TranceGate     gate;

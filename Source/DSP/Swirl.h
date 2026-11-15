@@ -57,5 +57,6 @@ private:
     int         coeffCountdown = 0;
     float       currentXover = 0.0f;
     double      freePhase = 0.0; // continues smoothly from the synced phase when sped up
+    CycleGlide  glide;           // the synced sweep across playhead jumps
 };
 } // namespace dt
