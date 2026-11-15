@@ -2,7 +2,16 @@
 
 A trance-focused modulation and combo-effects plug-in (VST3 and CLAP, plus a Windows standalone) for Ableton Live, FL Studio and Serato Studio. DeepTrance turns static pads, plucks, leads and vocals into moving, euphoric trance textures.
 
-**Status:** v1.0.1. All six build phases are complete and validated. Final sign-off needs a listening and loading pass in the three target DAWs.
+**Status:** v1.0.3. All six build phases are complete and validated. Final sign-off needs a listening and loading pass in the three target DAWs.
+
+**1.0.3** smooths fast synced LFOs and Astral across loop wraps. When your DAW loops round, they now glide on from exactly where they were, and a fast LFO (1/16, 1/32) glides over about one of its own cycles, so it never sweeps faster than drawn.
+
+**1.0.2** removes clicks and static:
+
+- **Loops and restarts:** when your DAW loops round or you jump the playhead, synced sweeps (Swirl, Vowel, the LFOs and Astral) now glide smoothly to the new position instead of jumping.
+- **Changing sounds:** loading a preset, switching programs or recalling a project while audio plays now fades smoothly (about 50 ms) instead of clicking.
+- **Abyss:** turning Decay or Damping over a ringing tail is now smooth.
+- **Punch:** no longer fires a false hit when a sound fades back in.
 
 **1.0.1** improves stability when your DAW saves or loads a project while DeepTrance is open. Some hosts do this in the background, and in rare cases it could crash the plug-in. Your projects and presets are unchanged.
 
@@ -59,7 +68,7 @@ Options:
 - `DeepTranceRender <folder>` also writes one WAV per factory preset.
 - `DeepTranceTests --render <folder>` writes per-module demo WAVs.
 
-The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.1 installer\DeepTrance.iss`.
+The installer is built with Inno Setup 6: `iscc /DAppVersion=1.0.3 installer\DeepTrance.iss`.
 
 ## Project layout
 
@@ -80,13 +89,16 @@ docs/              User Guide and README in .md, .txt and .pdf
 Every push runs on Windows:
 
 - **DSP unit tests:** bit-exact bypass; stability at extreme settings from 44.1 to 192 kHz; gate timing and block-size independence; formants; detune in cents; echo timing and ping-pong sides; pitch per repeat; tail spillover; reverb decay time; Freeze hold; shimmer stability; transient and ducking depth; grain pitch and loudness; acid drive loudness; Build-Up, combos, macros, LFO sync and mod matrix maths; CPU budget.
+- **Static checks:** loop wraps, wraps with a stopped block, restarts and sound changes across every factory preset, host program and saved state, measured for clicks against the sound's own sharpest moment. Unit tests reproduce the 1.0.1 Swirl loop-wrap and Abyss Decay clicks, and the 1.0.2 fast-LFO loop-wrap step, and fail on the old code.
 - **Preset renderer:** all 26 factory presets through the real processor (finite, sane loudness).
 - **pluginval** at strictness level 10.
 - **Steinberg VST3 validator** (47 tests).
 - **clap-validator**, the official CLAP conformance suite.
 - **Installer** build.
 
-Pushing a tag such as `v1.0.1` publishes a GitHub Release with the installer attached.
+Pushing a tag such as `v1.0.3` publishes a GitHub Release with the installer attached. A release can also be made from the **Build** workflow's *Run workflow* button by entering a tag (for example `v1.0.3`); the Windows job waits for the Linux tests, so nothing is published unless every check passes.
+
+Documentation: this README also ships as `README.txt` and `README.pdf`. Regenerate both with `python3 tools/build_docs.py` (needs pandoc, wkhtmltopdf and beautifulsoup4).
 
 ## Measured performance
 

@@ -52,14 +52,30 @@ struct CycleGlide
             // Smootherstep ease over kGlideSec: zero extra speed at both ends, no kink.
             const double x = std::min (1.0, progress);
             out += offset * (1.0 - x * x * x * (x * (6.0 * x - 15.0) + 10.0));
-            progress += (double) samples / (kGlideSec * sr);
+            progress += (double) samples / (glideSec * sr);
             if (x >= 1.0) { offset = 0.0; gliding = false; }
         }
         last = out;
         primed = true;
         return out;
     }
+    /** For a position read once per chunk: where it will be when the next chunk starts, so a
+        glide armed there starts exactly from it (not one chunk back, which paused the sweep). */
+    void expect (double position) noexcept { last = position; }
+
+    /** The offset still to glide off, at the current progress (after the last next()). */
+    double offsetNow() const noexcept
+    {
+        if (! gliding) return 0.0;
+        const double x = std::min (1.0, progress);
+        return offset * (1.0 - x * x * x * (x * (6.0 * x - 15.0) + 10.0));
+    }
+
     static constexpr double kGlideSec = 0.04;
+    /** Glide time. For a fast cycle, about one cycle: 40 ms over half a 1/16 cycle would
+        sweep it several times faster than it was drawn. */
+    void setCycleSeconds (double cycleSec) noexcept { glideSec = std::clamp (cycleSec, kGlideSec, 0.25); }
+    double glideSec = kGlideSec;
     double sr = 44100.0, offset = 0.0, last = 0.0, progress = 0.0;
     bool armed = false, gliding = false, primed = false;
 };
