@@ -365,7 +365,9 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
     if (astralSm.getTarget() > 0.0f || astralSm.isSmoothing())
     {
         if (clock.jumped()) astralGlide.arm();
-        const double ph = wrap01 (astralGlide.next (clock.ppqAt (0) / 32.0, n));
+        const double raw = clock.ppqAt (0) / 32.0;
+        const double ph = wrap01 (astralGlide.next (raw, n));
+        astralGlide.expect (raw + astralGlide.offsetNow() + (clock.ppqAt (n) - clock.ppqAt (0)) / 32.0);
         astralCoeffs.set (300.0f * std::pow (30.0f, 0.5f + 0.5f * (float) std::sin (kTwoPiD * ph)), 0.9f, sampleRate);
         for (int i = 0; i < n; ++i)
         {

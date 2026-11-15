@@ -863,6 +863,32 @@ void testStatic()
         CHECK (r < 2.5f, "a loop wrap should not click the Swirl sweep (%.2f)", (double) r);
     }
 
+    // A fast synced LFO (1/16) sweeping the Acid filter, across a loop wrap mid-cycle.
+    // 1.0.2's LFO glide started one 32-sample chunk behind the sweep (it paused there),
+    // and took a fixed 40 ms, sweeping a fast cycle several times faster than drawn.
+    {
+        EngineParams p = allOff();
+        p.acidOn = true; p.acid.cutoffHz = 900.0f; p.acid.resonance = 0.8f; p.acid.envMod = 0.0f;
+        p.lfo[0].sync = true; p.lfo[0].syncIndex = 2; p.lfo[0].shape = LfoShape::Sine;
+        p.mod[0] = { 1, (int) ModDest::AcidCutoff, 1.0f };
+        DeepTranceEngine e;
+        e.setParams (p); e.prepare (sr);
+        Stereo s = heldTone (sr, 4.0);
+        TransportInfo t; t.bpm = 120.0; t.isPlaying = true; t.hasPpq = true;
+        const size_t wrap = (size_t) (2.0 * sr) / 512 * 512;
+        for (size_t off = 0; off < s.size(); off += 512)
+        {
+            const int n = (int) std::min<size_t> (512, s.size() - off);
+            if (off == wrap) t.ppqAtBlockStart = 0.37;   // loop wraps round, mid-cycle
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+        }
+        const float r = spikeRatio (s, wrap, 4096);
+        std::printf ("  1/16 LFO on the Acid filter across a loop wrap: spike %.2f\n", (double) r);
+        // Limit 1: the wrap may not be the sharpest moment the sound makes (1.0.2: 1.19).
+        CHECK (r < 1.0f, "a loop wrap should not click a fast synced LFO (%.2f)", (double) r);
+    }
+
     // Abyss: Decay and Damping jumped over a ringing tail (automation, a knob grab).
     // 1.0.1 stepped the tank's feedback and damping gains, which clicked.
     {
