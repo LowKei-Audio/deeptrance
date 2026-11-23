@@ -911,6 +911,98 @@ void testStatic()
     }
 }
 
+
+// --- 1.0.3 compatibility ---------------------------------------------------------
+// Every 1.1 feature is neutral by default, so a sound made with 1.0.3 must come out
+// bit-for-bit the same. These fingerprints were rendered by the 1.0.3 engine. Floating
+// point differs between compilers, so they are checked where they were made (GCC on
+// x86-64, the Linux CI job); MSVC prints its own for reference.
+uint64_t fnv1a (const Stereo& s)
+{
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < s.size(); ++i)
+        for (float v : { s.l[i], s.r[i] })
+        {
+            uint32_t bits; std::memcpy (&bits, &v, 4);
+            for (int b = 0; b < 4; ++b) { h ^= (bits >> (8 * b)) & 0xffu; h *= 1099511628211ull; }
+        }
+    return h;
+}
+
+struct CompatCase { const char* name; std::function<void (EngineParams&)> setup; };
+
+const std::vector<CompatCase>& compatCases()
+{
+    static const std::vector<CompatCase> cases {
+        { "defaults",        [] (EngineParams&) {} },
+        { "all modules on",  [] (EngineParams& p) { p = allOn(); p.swirl.mode = SwirlMode::Both; } },
+        { "gate custom",     [] (EngineParams& p) { p.gateOn = true; p.gate.pattern = 0; for (size_t i = 0; i < 16; ++i) p.gate.steps[i] = (i % 3) ? 1.0f : 0.3f; p.gate.filterAmount = 0.4f; } },
+        { "gate factory",    [] (EngineParams& p) { p.gateOn = true; p.gate.pattern = 3; p.gate.rateIndex = 2; } },
+        { "astral",          [] (EngineParams& p) { p.combo = Combo::AstralProjection; p.comboAmount = 0.7f; } },
+        { "acid bath",       [] (EngineParams& p) { p.combo = Combo::AcidBath; } },
+        { "mod matrix",      [] (EngineParams& p) { p.acidOn = true; for (int i = 0; i < kModSlots; ++i) p.mod[(size_t) i] = { 1 + i % 3, 1 + i * 3, 0.3f }; p.lfo[1].shape = LfoShape::SmoothRandom; } },
+        { "build-up",        [] (EngineParams& p) { p.buildUp = 0.6f; p.buildUpNoise = 0.8f; } },
+        { "macros",          [] (EngineParams& p) { p.macros = { 0.9f, 0.2f, 1.0f, 0.7f }; p.gateOn = true; } },
+        { "cloud",           [] (EngineParams& p) { p.cloudOn = true; p.cloud.mix = 0.8f; p.cloud.shimmer = 0.4f; p.cloud.pitch = 7.0f; } },
+        { "punch + space",   [] (EngineParams& p) { p.punchOn = true; p.abyss.shimmer = 0.3f; p.delay.pitch = 5.0f; } },
+        { "gains + mix",     [] (EngineParams& p) { p.inputGainDb = 6.0f; p.outputGainDb = -3.0f; p.mix = 0.6f; } },
+    };
+    return cases;
+}
+
+// 1.0.3 engine, GCC 13 x86-64 -O2 (Release). Order matches compatCases().
+constexpr uint64_t kCompat103[] = {
+    0x56ab24067a96fe01ull,
+    0xb32f2c5955fbf1deull,
+    0xa988c929d6c197aaull,
+    0x76a683f9c030f197ull,
+    0xae2bfa70795e2e1eull,
+    0xd7c5bdb381ec0a39ull,
+    0x26ab5b2b598815c1ull,
+    0xd0b505d908c4be86ull,
+    0xb8ae40deea808d5eull,
+    0x9bdbd159f2c9c8d7ull,
+    0x71a437b804e821bdull,
+    0xf90048bbd8a1a257ull };
+
+std::vector<uint64_t> renderCompat()
+{
+    const double sr = 48000.0;
+    std::vector<uint64_t> out;
+    for (const auto& c : compatCases())
+    {
+        EngineParams p;
+        c.setup (p);
+        srRef() = sr;
+        DeepTranceEngine e; e.setParams (p); e.prepare (sr);
+        Stereo s = sawChord (sr, 3.0);
+        TransportInfo t; t.bpm = 138.0; t.isPlaying = true; t.hasPpq = true;
+        for (size_t off = 0; off < s.size(); off += 480)
+        {
+            const int n = (int) std::min<size_t> (480, s.size() - off);
+            if (off == 96000) t.ppqAtBlockStart = 0.0;   // one loop wrap mid-render
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+        }
+        out.push_back (fnv1a (s));
+    }
+    return out;
+}
+
+void testCompat103()
+{
+    section ("1.0.3 sounds are bit-exact");
+    const auto got = renderCompat();
+#if defined(__GNUC__) && ! defined(__clang__) && defined(__x86_64__)
+    constexpr size_t n = sizeof (kCompat103) / sizeof (kCompat103[0]);
+    if (n != got.size()) { std::printf ("  (fingerprint table not filled in)\n"); }
+    for (size_t i = 0; i < std::min (n, got.size()); ++i)
+        CHECK (got[i] == kCompat103[i], "%s differs from 1.0.3 (0x%016llx)", compatCases()[i].name, (unsigned long long) got[i]);
+#endif
+    for (size_t i = 0; i < got.size(); ++i)
+        std::printf ("  %-16s 0x%016llxull\n", compatCases()[i].name, (unsigned long long) got[i]);
+}
+
 } // namespace
 
 int main (int argc, char** argv)
@@ -931,6 +1023,7 @@ int main (int argc, char** argv)
     testBuildUpAndCombos();
     testCpu();
     testStatic();
+    testCompat103();
 
     if (argc == 3 && std::string (argv[1]) == "--render")
         renderDemos (argv[2]);

@@ -139,7 +139,8 @@ if(DT_BUILD_PLUGIN)
             JucePlugin_Name="DeepTrance"
             JucePlugin_VersionString="${PROJECT_VERSION}"
             JUCE_WEB_BROWSER=0
-            JUCE_USE_CURL=0)
+            JUCE_USE_CURL=0
+            DT_COMPAT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Tests/compat")
         target_link_libraries(DeepTranceRender PRIVATE
             DeepTranceDSP
             juce::juce_audio_utils

@@ -3,10 +3,12 @@
 // Usage: DeepTranceRender [outputDir]   (writes one WAV per preset when given)
 //        DeepTranceRender --static [v]   the static check alone: loop wraps, restarts
 //                                        and sound changes while playing (v: every event)
-// The default run ends with the static check too.
+//        DeepTranceRender --compat     the 1.0.3 compatibility check alone
+// The default run ends with the static and compatibility checks too.
 
 #include "PluginProcessor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <cstring>
 
 namespace
 {
@@ -117,6 +119,127 @@ namespace
         }
     };
 
+
+    // ---- 1.0.3 compatibility ----------------------------------------------------
+    // Tests/compat holds session states saved by DeepTrance 1.0.3 (every factory preset
+    // plus hand-edited ones) and a fingerprint of each one's render. 1.1 must load each
+    // state with every new feature neutral, and (where the fingerprints were made: GCC,
+    // x86-64) render it bit for bit.
+    uint64_t fnv1a (const juce::AudioBuffer<float>& b)
+    {
+        uint64_t h = 1469598103934665603ull;
+        for (int i = 0; i < b.getNumSamples(); ++i)
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float v = b.getSample (ch, i);
+                uint32_t bits; std::memcpy (&bits, &v, 4);
+                for (int k = 0; k < 4; ++k) { h ^= (bits >> (8 * k)) & 0xffu; h *= 1099511628211ull; }
+            }
+        return h;
+    }
+
+    uint64_t renderState (const juce::MemoryBlock& state)
+    {
+        const double sr = 48000.0;
+        const int block = 512;
+        DeepTranceProcessor proc;
+        proc.setStateInformation (state.getData(), (int) state.getSize());
+        proc.prepareToPlay (sr, block);
+        Head head;
+        proc.setPlayHead (&head);
+        auto buffer = sourceMaterial (sr, 6.0);
+        juce::MidiBuffer midi;
+        for (int off = 0; off < buffer.getNumSamples(); off += block)
+        {
+            const int n = juce::jmin (block, buffer.getNumSamples() - off);
+            juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), 2, off, n);
+            proc.processBlock (view, midi);
+            head.ppq += n * 138.0 / 60.0 / sr;
+        }
+        proc.setPlayHead (nullptr);
+        return fnv1a (buffer);
+    }
+
+    /** Hand-edited states, made on top of a factory preset by setting parameters. */
+    struct Edit { const char* name; int preset; std::vector<std::pair<const char*, float>> values; };
+    const std::vector<Edit>& compatEdits()
+    {
+        static const std::vector<Edit> e {
+            { "edit-all-on", 0, { { "gate_on", 1 }, { "vowel_on", 1 }, { "acid_on", 1 }, { "punch_on", 1 }, { "cloud_on", 1 },
+                                 { "swirl_mode", 2 }, { "mix", 85 }, { "output_gain", -2 } } },
+            { "edit-mod-matrix", 3, { { "mod1_source", 1 }, { "mod1_dest", 10 }, { "mod1_amount", 60 },
+                                     { "mod2_source", 3 }, { "mod2_dest", 23 }, { "mod2_amount", -40 }, { "acid_on", 1 },
+                                     { "lfo1_shape", 6 }, { "lfo1_rate_sync", 4 } } },
+            { "edit-gate-custom", 2, { { "gate_pattern", 0 }, { "gate_step_03", 20 }, { "gate_step_07", 0 }, { "gate_step_12", 55 },
+                                      { "gate_filter", 60 }, { "buildup", 40 }, { "combo", 1 }, { "combo_amount", 50 } } },
+            { "edit-macros", 10, { { "macro_gate", 80 }, { "macro_swirl", 10 }, { "macro_space", 95 }, { "macro_drift", 70 },
+                                  { "input_gain", 4 } } },
+        };
+        return e;
+    }
+
+    juce::File compatDir() { return juce::File (DT_COMPAT_DIR); }
+
+    /** Writes Tests/compat from the current build (run once, on 1.0.3). */
+    int generateCompat()
+    {
+        auto dir = compatDir();
+        dir.createDirectory();
+        juce::StringArray lines;
+        auto save = [&] (const juce::String& name, DeepTranceProcessor& p)
+        {
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            if (auto xml = juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize()))
+                xml->writeTo (dir.getChildFile (name + ".xml"));
+            lines.add (name + " " + juce::String::toHexString ((juce::int64) renderState (mb)));
+        };
+        const int n = DeepTranceProcessor().getNumPrograms();
+        for (int k = 0; k < n; ++k)
+        {
+            DeepTranceProcessor p;
+            p.setCurrentProgram (k);
+            save ("preset-" + juce::String (k).paddedLeft ('0', 2), p);
+        }
+        for (const auto& e : compatEdits())
+        {
+            DeepTranceProcessor p;
+            p.setCurrentProgram (e.preset);
+            for (const auto& [id, v] : e.values)
+                if (auto* rp = p.getState().getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+            save (e.name, p);
+        }
+        dir.getChildFile ("fingerprints.txt").replaceWithText (lines.joinIntoString ("\n") + "\n");
+        std::printf ("wrote %d states to %s\n", lines.size(), dir.getFullPathName().toRawUTF8());
+        return 0;
+    }
+
+    int runCompatCheck()
+    {
+        std::printf ("\n1.0.3 compatibility: saved sessions load with every new feature neutral\n");
+        const auto lines = juce::StringArray::fromLines (compatDir().getChildFile ("fingerprints.txt").loadFileAsString().trim());
+        int bad = 0, checked = 0;
+        for (const auto& line : lines)
+        {
+            const auto name = line.upToFirstOccurrenceOf (" ", false, false);
+            const auto want = (uint64_t) line.fromFirstOccurrenceOf (" ", false, false).getHexValue64();
+            const auto xml = juce::XmlDocument::parse (compatDir().getChildFile (name + ".xml"));
+            if (xml == nullptr) { ++bad; std::printf ("    %s: missing\n", name.toRawUTF8()); continue; }
+            juce::MemoryBlock mb;
+            juce::AudioProcessor::copyXmlToBinary (*xml, mb);
+            ++checked;
+            const auto got = renderState (mb);
+#if defined(__GNUC__) && ! defined(__clang__) && defined(__x86_64__)
+            if (got != want) { ++bad; std::printf ("    %-24s DIFFERS from 1.0.3\n", name.toRawUTF8()); }
+#else
+            juce::ignoreUnused (got, want);
+#endif
+        }
+        if (checked == 0) { ++bad; std::printf ("    no compatibility states found\n"); }
+        std::printf (bad == 0 ? "COMPAT OK (%d states)\n" : "COMPAT: %d PROBLEM(S)\n", bad == 0 ? checked : bad);
+        return bad;
+    }
+
     std::unique_ptr<DeepTranceProcessor> makeStaticProcessor()
     {
         auto p = std::make_unique<DeepTranceProcessor>();
@@ -204,6 +327,10 @@ namespace
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
+    if (argc > 1 && juce::String (argv[1]) == "--compat-generate")   // run once, on 1.0.3
+        return generateCompat();
+    if (argc > 1 && juce::String (argv[1]) == "--compat")
+        return runCompatCheck() == 0 ? 0 : 1;
     if (argc > 1 && juce::String (argv[1]) == "--static")   // the static check alone ("v": every event)
         return runStaticCheck (argc > 2 && juce::String (argv[2]) == "v") == 0 ? 0 : 1;
     const double sr = 48000.0;
@@ -266,5 +393,6 @@ int main (int argc, char** argv)
     std::printf (failures == 0 ? "\nALL %d PRESETS OK\n" : "\n%d PRESET(S) FAILED\n", failures == 0 ? proc.getNumPrograms() : failures);
     proc.setPlayHead (nullptr);
     const int clicks = runStaticCheck (false);
-    return failures == 0 && clicks == 0 ? 0 : 1;
+    const int compat = runCompatCheck();
+    return failures == 0 && clicks == 0 && compat == 0 ? 0 : 1;
 }
