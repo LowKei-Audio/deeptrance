@@ -11,7 +11,7 @@ namespace dt::ui
 class ModuleSection final : public juce::Component
 {
 public:
-    ModuleSection (const juce::String& title, APVTS&, const juce::Array<juce::RangedAudioParameter*>&,
+    ModuleSection (const juce::String& title, DeepTranceProcessor&, const juce::Array<juce::RangedAudioParameter*>&,
                    juce::RangedAudioParameter* onParam, bool withStepEditor);
     int  heightForWidth (int width) const;
     void paint (juce::Graphics&) override;
@@ -22,7 +22,7 @@ private:
     int columnsFor (int width) const { return juce::jmax (1, (width - 2 * kPad) / kCellW); }
 
     juce::String title;
-    std::vector<std::unique_ptr<ParamControl>> controls;
+    std::vector<std::unique_ptr<juce::Component>> controls;   // ParamControl, PatternBox or PadButton
     std::unique_ptr<PillToggle> onSwitch;
     std::unique_ptr<StepEditor> stepEditor;
 };

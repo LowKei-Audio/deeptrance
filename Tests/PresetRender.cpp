@@ -278,6 +278,84 @@ namespace
         return bad;
     }
 
+    /** Draws the real editor offscreen (Easy and Pro, default and smallest size) as PNGs,
+        for checking layouts without a host. A playing gate and a latched pad show the
+        live parts. */
+    int snapshotEditor (const juce::File& dir)
+    {
+        dir.createDirectory();
+        DeepTranceProcessor proc;
+        proc.setCurrentProgram (2);   // a gated preset
+        proc.prepareToPlay (48000.0, 512);
+        Head head; head.ppq = 2.75;
+        proc.setPlayHead (&head);
+        juce::AudioBuffer<float> b (2, 512); b.clear(); juce::MidiBuffer m;
+        proc.getState().getParameter ("pad_riser")->setValueNotifyingHost (1.0f);
+        proc.getState().getParameter ("pump_on")->setValueNotifyingHost (1.0f);
+        for (int i = 0; i < 400; ++i) { proc.processBlock (b, m); head.ppq += 512 * 138.0 / 60.0 / 48000.0; }
+        for (bool pro : { false, true })
+            for (auto size : { std::pair<int, int> { 1040, 780 }, std::pair<int, int> { 980, 720 } })
+            {
+                proc.setProMode (pro);
+                std::unique_ptr<juce::AudioProcessorEditor> ed (proc.createEditor());
+                ed->setSize (size.first, size.second);
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+                const auto f = dir.getChildFile (juce::String (pro ? "pro" : "easy") + "_" + juce::String (size.first) + ".png");
+                f.deleteFile();
+                juce::FileOutputStream out (f);
+                juce::PNGImageFormat().writeImageToStream (img, out);
+                std::printf ("wrote %s\n", f.getFullPathName().toRawUTF8());
+
+                // Pro: the whole scrolling page too, not just what fits in the window.
+                std::function<juce::Viewport* (juce::Component&)> findViewport = [&] (juce::Component& c) -> juce::Viewport*
+                {
+                    if (auto* v = dynamic_cast<juce::Viewport*> (&c)) return v;
+                    for (auto* child : c.getChildren()) if (auto* v = findViewport (*child)) return v;
+                    return nullptr;
+                };
+                if (auto* vp = pro ? findViewport (*ed) : nullptr)
+                    if (auto* content = vp->getViewedComponent())
+                    {
+                        const auto full = content->createComponentSnapshot (content->getLocalBounds(), true, 1.0f);
+                        const auto f2 = dir.getChildFile ("pro_full_" + juce::String (size.first) + ".png");
+                        f2.deleteFile();
+                        juce::FileOutputStream o2 (f2);
+                        juce::PNGImageFormat().writeImageToStream (full, o2);
+                    }
+            }
+        proc.setPlayHead (nullptr);
+        return 0;
+    }
+
+    /** A/B keeps each slot's sound; Randomize never touches levels or the mix. */
+    int runFeatureCheck()
+    {
+        std::printf ("\nA/B compare and Randomize\n");
+        int bad = 0;
+        auto value = [] (DeepTranceProcessor& p, const char* id) { auto* rp = p.getState().getParameter (id); return rp->convertFrom0to1 (rp->getValue()); };
+        DeepTranceProcessor p;
+        p.setCurrentProgram (5);
+        const float aDecay = value (p, "abyss_decay"), aGate = value (p, "gate_on");
+        p.selectAB (1);
+        if (value (p, "abyss_decay") != aDecay) { ++bad; std::printf ("    B should start as a copy of A\n"); }
+        p.setCurrentProgram (12);
+        const float bDecay = value (p, "abyss_decay");
+        p.selectAB (0);
+        if (value (p, "abyss_decay") != aDecay || value (p, "gate_on") != aGate) { ++bad; std::printf ("    A should come back exactly\n"); }
+        p.selectAB (1);
+        if (value (p, "abyss_decay") != bDecay) { ++bad; std::printf ("    B should keep its edits\n"); }
+
+        for (int k = 0; k < 50; ++k)
+        {
+            p.randomize();
+            if (value (p, "mix") != 100.0f || value (p, "input_gain") != 0.0f || value (p, "output_gain") != 0.0f
+                || value (p, "buildup") != 0.0f || value (p, "out_clip") < 0.5f || value (p, "delay_mix") > 30.0f)
+            { ++bad; std::printf ("    randomize #%d touched a level, the mix, Build-Up or Safety Clip\n", k); break; }
+        }
+        std::printf (bad == 0 ? "FEATURES OK\n" : "FEATURES: %d PROBLEM(S)\n", bad);
+        return bad;
+    }
+
     std::unique_ptr<DeepTranceProcessor> makeStaticProcessor()
     {
         auto p = std::make_unique<DeepTranceProcessor>();
@@ -342,6 +420,13 @@ namespace
             for (int k = 1; k < numPresets; ++k)
                 change ("preset " + p->getProgramName (k), [&] { p->setCurrentProgram (k); });
             change ("preset " + p->getProgramName (0), [&] { p->setCurrentProgram (0); });
+            // 1.1: Randomize and A/B compare are sound changes too.
+            for (int k = 0; k < 6; ++k)
+                change ("randomize #" + juce::String (k + 1), [&] { p->randomize(); });
+            change ("A/B: to B", [&] { p->selectAB (1); });
+            change ("B: edit (preset)", [&] { p->setCurrentProgram (numPresets - 2); });
+            change ("A/B: back to A", [&] { p->selectAB (0); });
+            change ("A/B: to B again", [&] { p->selectAB (1); });
             for (int k : { 3, numPresets / 2, numPresets - 1 })
             {
                 auto other = makeStaticProcessor();
@@ -367,6 +452,8 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     if (argc > 1 && juce::String (argv[1]) == "--compat-generate")   // run once, on 1.0.3
         return generateCompat();
+    if (argc > 2 && juce::String (argv[1]) == "--snapshot")   // editor PNGs for layout checks
+        return snapshotEditor (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
     if (argc > 1 && juce::String (argv[1]) == "--compat")
         return runCompatCheck() == 0 ? 0 : 1;
     if (argc > 1 && juce::String (argv[1]) == "--static")   // the static check alone ("v": every event)
@@ -432,5 +519,6 @@ int main (int argc, char** argv)
     proc.setPlayHead (nullptr);
     const int clicks = runStaticCheck (false);
     const int compat = runCompatCheck();
-    return failures == 0 && clicks == 0 && compat == 0 ? 0 : 1;
+    const int features = runFeatureCheck();
+    return failures == 0 && clicks == 0 && compat == 0 && features == 0 ? 0 : 1;
 }

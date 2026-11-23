@@ -9,7 +9,8 @@
 
 namespace dt::ui
 {
-/** Prev / name (menu) / next / save. Factory presets by category, then user presets. */
+/** Prev / name (menu) / next, A/B compare, Random, Save. Factory presets by category,
+    then user presets. */
 class PresetBar final : public juce::Component, private juce::Timer
 {
 public:
@@ -26,6 +27,7 @@ private:
 
     DeepTranceProcessor& processor;
     juce::TextButton prev { "<" }, next { ">" }, name, save { "SAVE" };
+    juce::TextButton slotA { "A" }, slotB { "B" }, copy { "COPY" }, dice { "RANDOM" };
 };
 } // namespace dt::ui
 

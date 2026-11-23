@@ -31,6 +31,8 @@ public:
     void loadFactory (int index);
 
     juce::String currentPresetName() const;
+    /** Names the current (unsaved) sound, e.g. "Random". */
+    void setCustomName (const juce::String& name) { setPresetInfo (name, -1); }
 
     static juce::File userPresetDirectory();
     juce::Array<juce::File> userPresets() const;

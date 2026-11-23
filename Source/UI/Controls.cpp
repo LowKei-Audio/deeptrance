@@ -316,9 +316,140 @@ void XYPad::mouseDoubleClick (const juce::MouseEvent&)
 // ============================================================================
 // StepEditor
 // ============================================================================
-StepEditor::StepEditor (APVTS& s)
+// ============================================================================
+// PadButton
+// ============================================================================
+PadButton::PadButton (APVTS& s, const juce::String& paramId, const juce::String& text, juce::Colour c,
+                      std::function<float()> prog)
+    : param (s.getParameter (paramId)), caption (text), colour (c), progress (std::move (prog))
+{
+    jassert (param != nullptr);
+    setTooltip ("Hold to play " + caption.toLowerCase() + ". Shift-click to latch it on; click again to release.");
+    setRepaintsOnMouseActivity (true);
+    startTimerHz (30);   // follows automation, and the Riser's climb
+}
+
+PadButton::~PadButton() { stopTimer(); }
+
+void PadButton::set (bool on)
+{
+    param->beginChangeGesture();
+    param->setValueNotifyingHost (on ? 1.0f : 0.0f);
+    param->endChangeGesture();
+}
+
+void PadButton::mouseDown (const juce::MouseEvent& e)
+{
+    if (latched) { latched = false; set (false); return; }   // a latched pad: any click releases it
+    if (e.mods.isShiftDown()) { latched = true; set (true); return; }
+    held = true;
+    set (true);
+}
+
+void PadButton::mouseUp (const juce::MouseEvent&)
+{
+    if (! held) return;
+    held = false;
+    set (false);
+}
+
+void PadButton::paint (juce::Graphics& g)
+{
+    const auto r = getLocalBounds().toFloat().reduced (1.5f);
+    const bool on = param->getValue() >= 0.5f;
+
+    g.setColour (on ? colour.withAlpha (0.28f) : (isMouseOver() ? colours::panelHi : colours::panel));
+    g.fillRoundedRectangle (r, 8.0f);
+
+    if (progress && on)
+    {
+        const float p = juce::jlimit (0.0f, 1.0f, progress());
+        g.setColour (colour.withAlpha (0.35f));
+        g.fillRoundedRectangle (r.withWidth (r.getWidth() * p), 8.0f);
+    }
+
+    g.setColour (on ? colour : colours::outline);
+    g.drawRoundedRectangle (r, 8.0f, on ? 2.0f : 1.0f);
+    g.setColour (on ? colours::text : colours::textDim);
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.drawFittedText (caption, r.toNearestInt(), juce::Justification::centred, 1, 0.8f);
+    if (latched)
+    {
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText ("LATCHED", r.withTrimmedTop (r.getHeight() - 14.0f), juce::Justification::centred);
+    }
+}
+
+// ============================================================================
+// PatternBox
+// ============================================================================
+namespace
+{
+    // Combo item ids: 1 = Custom, 2..9 = 1.0 patterns, 101..108 = 1.1 patterns.
+    constexpr int kExtItemBase = 100;
+}
+
+PatternBox::PatternBox (APVTS& s, const juce::String& labelText)
+    : pattern (s.getParameter (dt::pid::gatePattern)), patternExt (s.getParameter (dt::pid::gatePatternExt))
+{
+    label.setText (labelText, juce::dontSendNotification);
+    label.setJustificationType (juce::Justification::centred);
+    label.setFont (juce::FontOptions (12.0f));
+    label.setColour (juce::Label::textColourId, colours::textDim);
+    addAndMakeVisible (label);
+
+    box.addItem ("Custom", 1);
+    for (int i = 0; i < dt::TranceGate::kNumLegacy; ++i) box.addItem (dt::TranceGate::patterns()[(size_t) i].name, 2 + i);
+    box.addSectionHeading ("New in 1.1");
+    for (int i = dt::TranceGate::kNumLegacy; i < dt::TranceGate::kNumPatterns; ++i)
+        box.addItem (dt::TranceGate::patterns()[(size_t) i].name, kExtItemBase + 1 + i - dt::TranceGate::kNumLegacy);
+    box.setTooltip ("Gate pattern. Custom plays the steps you draw.");
+    addAndMakeVisible (box);
+
+    box.onChange = [this]
+    {
+        const int id = box.getSelectedId();
+        if (id <= 0 || id == currentItem()) return;
+        auto write = [] (juce::RangedAudioParameter* p, float plain)
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 (plain));
+            p->endChangeGesture();
+        };
+        if (id > kExtItemBase) write (patternExt, (float) (id - kExtItemBase));
+        else { write (patternExt, 0.0f); write (pattern, (float) (id - 1)); }
+    };
+    timerCallback();
+    startTimerHz (10);   // follows automation and presets
+}
+
+PatternBox::~PatternBox() { stopTimer(); }
+
+int PatternBox::currentItem() const
+{
+    const int ext = (int) std::lround (patternExt->convertFrom0to1 (patternExt->getValue()));
+    if (ext > 0) return kExtItemBase + ext;
+    return 1 + (int) std::lround (pattern->convertFrom0to1 (pattern->getValue()));
+}
+
+void PatternBox::timerCallback()
+{
+    if (box.getSelectedId() != currentItem() && ! box.isPopupActive())
+        box.setSelectedId (currentItem(), juce::dontSendNotification);
+}
+
+void PatternBox::resized()
+{
+    auto r = getLocalBounds().reduced (4);
+    label.setBounds (r.removeFromTop (16));
+    box.setBounds (r.withSizeKeepingCentre (r.getWidth(), 26));
+}
+
+StepEditor::StepEditor (APVTS& s, std::function<int()> ph)
+    : playhead (std::move (ph))
 {
     pattern = s.getParameter (dt::pid::gatePattern);
+    patternExt = s.getParameter (dt::pid::gatePatternExt);
     for (int i = 0; i < 16; ++i)
         steps[(size_t) i] = s.getParameter (dt::gateStepId (i));
     setTooltip ("Draw the gate pattern. Drawing over a factory pattern turns it into an editable Custom copy.");
@@ -329,13 +460,16 @@ StepEditor::~StepEditor() { stopTimer(); }
 
 int StepEditor::activePattern() const
 {
+    // 0 = Custom, 1..8 the 1.0 patterns, 9..16 the 1.1 ones (Gate Pattern+ wins).
+    const int ext = (int) std::lround (patternExt->convertFrom0to1 (patternExt->getValue()));
+    if (ext > 0) return dt::TranceGate::kNumLegacy + ext;
     return (int) std::lround (pattern->convertFrom0to1 (pattern->getValue()));
 }
 
 float StepEditor::displayedLevel (int step) const
 {
     const int p = activePattern();
-    return p > 0 ? dt::TranceGate::patterns()[(size_t) p - 1].steps[(size_t) step]
+    return p > 0 ? dt::TranceGate::patterns()[(size_t) juce::jlimit (0, dt::TranceGate::kNumPatterns - 1, p - 1)].steps[(size_t) step]
                  : steps[(size_t) step]->getValue();
 }
 
@@ -350,9 +484,12 @@ void StepEditor::convertToCustom()
     // Copy the playing factory pattern into the custom steps, then select Custom.
     const auto& src = dt::TranceGate::patterns()[(size_t) activePattern() - 1].steps;
     for (size_t i = 0; i < 16; ++i) setStep (i, src[i]);
-    pattern->beginChangeGesture();
-    pattern->setValueNotifyingHost (pattern->convertTo0to1 (0.0f));
-    pattern->endChangeGesture();
+    for (auto* p : { patternExt, pattern })
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+        p->endChangeGesture();
+    }
 }
 
 void StepEditor::paint (juce::Graphics& g)
@@ -362,14 +499,21 @@ void StepEditor::paint (juce::Graphics& g)
     g.fillRoundedRectangle (r, 6.0f);
 
     const float w = r.getWidth() / 16.0f;
+    const int now = playhead ? playhead() : -1;
     for (int i = 0; i < 16; ++i)
     {
         const float v = displayedLevel (i);
         auto bar = juce::Rectangle<float> (r.getX() + i * w, r.getY(), w, r.getHeight()).reduced (2.0f, 4.0f);
-        g.setColour (colours::outline);
+        g.setColour (i == now ? colours::panelHi.brighter (0.25f) : colours::outline);
         g.fillRoundedRectangle (bar, 3.0f);
-        g.setColour ((i % 4 == 0) ? colours::accent2 : colours::accent); // beat starts in cyan
+        const auto colour = (i % 4 == 0) ? colours::accent2 : colours::accent; // beat starts in cyan
+        g.setColour (i == now ? colour.brighter (0.5f) : colour);
         g.fillRoundedRectangle (bar.removeFromBottom (bar.getHeight() * v), 3.0f);
+        if (i == now)
+        {
+            g.setColour (colours::text);
+            g.fillRoundedRectangle (juce::Rectangle<float> (r.getX() + i * w + 3.0f, r.getY() + 1.0f, w - 6.0f, 2.5f), 1.0f);
+        }
     }
 }
 
