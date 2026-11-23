@@ -1265,7 +1265,18 @@ const std::vector<CompatCase>& compatCases()
     return cases;
 }
 
-// 1.0.3 engine, GCC 13 x86-64 -O2 (Release). Order matches compatCases().
+// 1.0.3 engine fingerprints, x86-64 -O2 (Release), per toolchain: compilers and maths
+// libraries round the last bit differently, so each table is only valid where it was made.
+// Order matches compatCases(). CI runs on ubuntu-24.04 (GCC 13).
+//   GCC 13 / Ubuntu 24.04: made from the 1.0.3 engine before any 1.1 change.
+//   GCC 15 / Ubuntu 26.04: rendered by the untouched 1.0.3 engine (commit 520ea49) on
+//   GitHub's ubuntu-26.04 runner, identical to 1.1 there. Ready for when CI moves.
+#if defined(__GNUC__) && ! defined(__clang__) && __GNUC__ >= 15
+constexpr uint64_t kCompat103[] = {
+    0xa934dce844b76da2ull, 0x28b3f558dc60b635ull, 0x4c0df73150d2fb5dull, 0xd66ca02356a6f836ull,
+    0x0bbe7dd2c4177824ull, 0xb15864367d2839eeull, 0x2f23b8b0aa21bd79ull, 0x0b3ddafaf05227a0ull,
+    0x2024a69841800ef1ull, 0x5c6d7c609bfc1877ull, 0x4d5b04d4f5d11bb6ull, 0xf5667c26ee31e1c2ull };
+#else
 constexpr uint64_t kCompat103[] = {
     0x56ab24067a96fe01ull,
     0xb32f2c5955fbf1deull,
@@ -1279,6 +1290,7 @@ constexpr uint64_t kCompat103[] = {
     0x9bdbd159f2c9c8d7ull,
     0x71a437b804e821bdull,
     0xf90048bbd8a1a257ull };
+#endif
 
 std::vector<uint64_t> renderCompat()
 {

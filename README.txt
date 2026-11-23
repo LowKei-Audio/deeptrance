@@ -168,7 +168,9 @@ Every push runs on Linux, then Windows:
 
 -   1.0.3 compatibility: 12 engine configurations and 30 saved 1.0.3 sessions (every
     factory preset plus hand-edited states) must render bit-for-bit the same, and load
-    with every 1.1 feature neutral.
+    with every 1.1 feature neutral. Bit-exact fingerprints depend on the compiler, so the
+    Linux jobs are pinned to ubuntu-24.04 (GCC 13, where they were made); a verified GCC
+    15 table is ready for Ubuntu 26.04.
 -   1.1 features: pump depth, timing, band split and block-size independence; gate swing
     and ping-pong; width, bass mono and safety clip; Throw tails, Drop, Riser timing,
     Wash; the new modulation sources; loop wraps and switching every 1.1 feature while

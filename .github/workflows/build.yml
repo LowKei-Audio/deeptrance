@@ -21,7 +21,7 @@ env:
 jobs:
   # Fast check: DSP unit tests only (no JUCE download).
   dsp-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: the 1.0.3 fingerprints are bit-exact per toolchain (GCC 13 here)
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -35,7 +35,7 @@ jobs:
   # session must load neutral and render bit for bit; presets, static, A/B, Randomize.
   linux-render:
     needs: dsp-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: the 1.0.3 fingerprints are bit-exact per toolchain (GCC 13 here)
     steps:
       - uses: actions/checkout@v4
       - name: JUCE dependencies
