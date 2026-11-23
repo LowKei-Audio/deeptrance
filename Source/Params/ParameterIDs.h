@@ -116,4 +116,27 @@ inline constexpr const char* abyssFreeze   = "abyss_freeze";
 inline constexpr const char* envAttack  = "env_attack";
 inline constexpr const char* envRelease = "env_release";
 inline constexpr const char* envGain    = "env_gain";
+
+// --- 1.1 ("Euphoria") -------------------------------------------------------------
+// Every new parameter's default is neutral (1.0.3 sounds unchanged), except Safety Clip:
+// on for new sounds, forced off when a 1.0.x session or preset loads (see migrateState).
+inline constexpr const char* gateSwing      = "gate_swing";
+inline constexpr const char* gateStereo     = "gate_stereo";
+inline constexpr const char* gatePatternExt = "gate_pattern_ext";   // 0 = use gate_pattern
+
+inline constexpr const char* pumpOn    = "pump_on";
+inline constexpr const char* pumpRate  = "pump_rate";
+inline constexpr const char* pumpDepth = "pump_depth";
+inline constexpr const char* pumpShape = "pump_shape";
+inline constexpr const char* pumpBand  = "pump_band";
+
+inline constexpr const char* outWidth    = "out_width";
+inline constexpr const char* outBassMono = "out_bass_mono";   // under 40 Hz = off
+inline constexpr const char* outClip     = "out_clip";
+
+inline constexpr const char* padThrow  = "pad_throw";
+inline constexpr const char* padWash   = "pad_wash";
+inline constexpr const char* padDrop   = "pad_drop";
+inline constexpr const char* padRiser  = "pad_riser";
+inline constexpr const char* riserBars = "riser_bars";
 } // namespace dt::pid

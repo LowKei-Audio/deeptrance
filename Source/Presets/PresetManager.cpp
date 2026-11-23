@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "Params/ParameterLayout.h"
 
 namespace dt
 {
@@ -108,7 +109,9 @@ bool PresetManager::loadUser (const juce::File& file)
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType())) return false;
 
     const auto uiMode = apvts.state.getProperty (kUiMode);
-    apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    auto tree = juce::ValueTree::fromXml (*xml);
+    migrateState (tree);   // a 1.0.x preset sounds as it was saved
+    apvts.replaceState (tree);
     syncParametersToState (apvts);
     apvts.state.setProperty (kUiMode, uiMode, nullptr);
     setPresetInfo (file.getFileNameWithoutExtension(), -1);

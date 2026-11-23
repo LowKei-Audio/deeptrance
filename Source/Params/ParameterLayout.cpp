@@ -83,6 +83,23 @@ namespace
     }
 }
 
+void migrateState (juce::ValueTree& state)
+{
+    const juce::Identifier kVersion (kStateVersionId);
+    if ((int) state.getProperty (kVersion, 1) < 2)
+    {
+        auto clip = state.getChildWithProperty ("id", pid::outClip);
+        if (! clip.isValid())
+        {
+            clip = juce::ValueTree ("PARAM");
+            clip.setProperty ("id", pid::outClip, nullptr);
+            state.appendChild (clip, nullptr);
+        }
+        clip.setProperty ("value", 0.0f, nullptr);
+    }
+    state.setProperty (kVersion, kStateVersion, nullptr);
+}
+
 juce::String gateStepId (int index) { return juce::String (pid::gateStepPrefix) + juce::String (index + 1).paddedLeft ('0', 2); }
 juce::String lfoId (int index, const char* suffix) { return "lfo" + juce::String (index + 1) + "_" + suffix; }
 juce::String modId (int slot, const char* suffix)  { return "mod" + juce::String (slot + 1) + "_" + suffix; }
@@ -106,13 +123,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                     percent (pid::buildUp, "Build-Up", 0.0f),
                     percent (pid::buildUpNoise, "Build-Up Noise", 50.0f),
                     choice (pid::combo, "Combo", names (kComboNames), "Off"),
-                    percent (pid::comboAmount, "Combo Amount", 100.0f));
+                    percent (pid::comboAmount, "Combo Amount", 100.0f),
+                    // 1.1 performance pads: momentary in the Easy view, automatable.
+                    toggle (pid::padThrow, "Throw", false),
+                    toggle (pid::padWash,  "Wash",  false),
+                    toggle (pid::padDrop,  "Drop",  false),
+                    toggle (pid::padRiser, "Riser", false),
+                    choice (pid::riserBars, "Riser Length", names (kRiserBarNames), "8 Bars"));
 
     // --- Trance Gate (off by default: it changes rhythm, so it should be a choice) ---
     juce::StringArray rates;
     for (const auto& r : TranceGate::kRates) rates.add (r.name);
-    juce::StringArray patterns { "Custom" };
-    for (const auto& p : TranceGate::patterns()) patterns.add (p.name);
+    // The 1.0 list stays exactly as it was (DAW automation stores a choice as a 0..1
+    // position, so a longer list would move it); the 1.1 patterns are a second list.
+    juce::StringArray patterns { "Custom" }, patternsExt { "Off" };
+    for (int i = 0; i < TranceGate::kNumPatterns; ++i)
+        (i < TranceGate::kNumLegacy ? patterns : patternsExt).add (TranceGate::patterns()[(size_t) i].name);
 
     auto gate = std::make_unique<Group> ("gate", "Trance Gate", "|");
     gate->addChild (toggle (pid::gateOn, "Gate On", false),
@@ -122,7 +148,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                     ranged (pid::gateLength,  "Gate Length",   5.0f, 100.0f, 60.0f, "%", 0.0f, 0),
                     ranged (pid::gateAttack,  "Gate Attack",   0.5f,  50.0f,  2.0f, "ms", 5.0f),
                     ranged (pid::gateRelease, "Gate Release",  1.0f, 200.0f, 30.0f, "ms", 30.0f),
-                    percent (pid::gateFilter, "Gate Filter", 0.0f));
+                    percent (pid::gateFilter, "Gate Filter", 0.0f),
+                    percent (pid::gateSwing, "Gate Swing", 0.0f),
+                    percent (pid::gateStereo, "Gate Ping-Pong", 0.0f),
+                    choice (pid::gatePatternExt, "Gate Pattern+", patternsExt, "Off"));
     for (int i = 0; i < TranceGate::kNumSteps; ++i)
         gate->addChild (percent (gateStepId (i), "Gate Step " + juce::String (i + 1), 100.0f));
 
@@ -242,6 +271,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                      percent (pid::abyssMix, "Abyss Mix", 25.0f),
                      toggle (pid::abyssFreeze, "Abyss Freeze", false));
 
+    // --- Pump (1.1; off: it changes the groove, so it should be a choice) ---------------
+    auto pump = std::make_unique<Group> (group::pump, "Pump", "|");
+    pump->addChild (toggle (pid::pumpOn, "Pump On", false),
+                    choice (pid::pumpRate, "Pump Rate", names (kPumpDivs), "1/4"),
+                    percent (pid::pumpDepth, "Pump Depth", 60.0f),
+                    percent (pid::pumpShape, "Pump Shape", 50.0f),
+                    choice (pid::pumpBand, "Pump Band", names (kPumpBandNames), "Full"));
+
+    // --- Output (1.1) ----------------------------------------------------------------------
+    auto out = std::make_unique<Group> (group::output, "Output", "|");
+    out->addChild (ranged (pid::outWidth, "Width", 0.0f, 200.0f, 100.0f, "%", 0.0f, 0),
+                   std::make_unique<APF> (id (pid::outBassMono), "Bass Mono",
+                                          [] { juce::NormalisableRange<float> r (0.0f, 400.0f, 1.0f); r.setSkewForCentre (120.0f); return r; }(),
+                                          0.0f,
+                                          Attrs().withLabel ("Hz")
+                                              .withStringFromValueFunction ([] (float v, int) { return v < 40.0f ? juce::String ("Off") : num (v, 0) + " Hz"; })
+                                              .withValueFromStringFunction ([] (const juce::String& t) { return t.trim().equalsIgnoreCase ("off") ? 0.0f : t.getFloatValue(); })),
+                   toggle (pid::outClip, "Safety Clip", true));
+
     // --- LFOs -----------------------------------------------------------------------------
     const char* lfoGroupIds[2] = { group::lfo1, group::lfo2 };
     const char* lfoDefaultRate[2] = { "1 Bar", "4 Bars" };
@@ -274,7 +322,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     layout.add (std::move (global), std::move (perf), std::move (gate), std::move (vowel), std::move (swirl),
                 std::move (drift), std::move (acid), std::move (punch), std::move (cloud), std::move (delay),
-                std::move (abyss), std::move (lfos[0]), std::move (lfos[1]), std::move (env), std::move (mod));
+                std::move (abyss), std::move (pump), std::move (out),
+                std::move (lfos[0]), std::move (lfos[1]), std::move (env), std::move (mod));
     return layout;
 }
 } // namespace dt

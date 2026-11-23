@@ -41,6 +41,11 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::buildUpNoise, [] (E& e, float v, int) { e.buildUpNoise = pct (v); });
     bind (P::combo,        [] (E& e, float v, int) { e.combo = (dt::Combo) juce::jlimit (0, 2, idx (v)); });
     bind (P::comboAmount,  [] (E& e, float v, int) { e.comboAmount = pct (v); });
+    bind (P::padThrow,     [] (E& e, float v, int) { e.pads.throwOn = on (v); });
+    bind (P::padWash,      [] (E& e, float v, int) { e.pads.washOn = on (v); });
+    bind (P::padDrop,      [] (E& e, float v, int) { e.pads.dropOn = on (v); });
+    bind (P::padRiser,     [] (E& e, float v, int) { e.pads.riserOn = on (v); });
+    bind (P::riserBars,    [] (E& e, float v, int) { e.pads.riserBars = idx (v); });
 
     bind (P::gateOn,      [] (E& e, float v, int) { e.gateOn = on (v); });
     bind (P::gateRate,    [] (E& e, float v, int) { e.gate.rateIndex = idx (v); });
@@ -50,6 +55,9 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::gateAttack,  [] (E& e, float v, int) { e.gate.attackMs = v; });
     bind (P::gateRelease, [] (E& e, float v, int) { e.gate.releaseMs = v; });
     bind (P::gateFilter,  [] (E& e, float v, int) { e.gate.filterAmount = pct (v); });
+    bind (P::gateSwing,   [] (E& e, float v, int) { e.gate.swing = pct (v); });
+    bind (P::gateStereo,  [] (E& e, float v, int) { e.gate.stereo = pct (v); });
+    bind (P::gatePatternExt, [] (E& e, float v, int) { e.gate.patternExt = idx (v); });
     for (int i = 0; i < dt::TranceGate::kNumSteps; ++i)
         bind (dt::gateStepId (i), [] (E& e, float v, int k) { e.gate.steps[(size_t) k] = pct (v); }, i);
 
@@ -124,6 +132,16 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::abyssMix,      [] (E& e, float v, int) { e.abyss.mix = pct (v); });
     bind (P::abyssFreeze,   [] (E& e, float v, int) { e.abyss.freeze = on (v); });
 
+    bind (P::pumpOn,    [] (E& e, float v, int) { e.pumpOn = on (v); });
+    bind (P::pumpRate,  [] (E& e, float v, int) { e.pump.rateIndex = idx (v); });
+    bind (P::pumpDepth, [] (E& e, float v, int) { e.pump.depth = pct (v); });
+    bind (P::pumpShape, [] (E& e, float v, int) { e.pump.shape = pct (v); });
+    bind (P::pumpBand,  [] (E& e, float v, int) { e.pump.band = idx (v); });
+
+    bind (P::outWidth,    [] (E& e, float v, int) { e.output.width = pct (v); });
+    bind (P::outBassMono, [] (E& e, float v, int) { e.output.bassMonoHz = v < 40.0f ? 0.0f : v; });
+    bind (P::outClip,     [] (E& e, float v, int) { e.output.clip = on (v); });
+
     for (int i = 0; i < 2; ++i)
     {
         bind (dt::lfoId (i, "shape"),     [] (E& e, float v, int k) { e.lfo[(size_t) k].shape = (dt::LfoShape) juce::jlimit (0, 7, idx (v)); }, i);
@@ -147,6 +165,8 @@ DeepTranceProcessor::DeepTranceProcessor()
 
     resetCustomShapes();
     apvts.state.setProperty (kUiMode, "easy", nullptr);
+    // A new instance is current by definition: stamp the version (do not migrate it).
+    apvts.state.setProperty (dt::kStateVersionId, dt::kStateVersion, nullptr);
 
     // After a host load: snap each parameter to its exact saved value (see PresetManager).
     stateGuard.onApplied = [this] { dt::PresetManager::syncParametersToState (apvts); };
@@ -309,7 +329,8 @@ void DeepTranceProcessor::setStateInformation (const void* data, int sizeInBytes
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (stateGuard.stateType()))
         {
-            const auto tree = juce::ValueTree::fromXml (*xml);
+            auto tree = juce::ValueTree::fromXml (*xml);
+            dt::migrateState (tree);   // 1.0.x sessions: every 1.1 feature neutral
             // Parameters at once; apvts.state itself on the message thread (onApplied).
             stateGuard.setState (tree);
             loadCustomShapesFrom (tree);   // atomics: safe on any thread

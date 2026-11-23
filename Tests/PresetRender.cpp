@@ -214,9 +214,37 @@ namespace
         return 0;
     }
 
+    /** Every 1.1 parameter at its neutral (1.0-equivalent) value? Names the first that is not. */
+    juce::String firstNonNeutral (DeepTranceProcessor& p)
+    {
+        const std::pair<const char*, float> neutral[] = {
+            { "gate_swing", 0 }, { "gate_stereo", 0 }, { "gate_pattern_ext", 0 },
+            { "pump_on", 0 }, { "out_width", 100 }, { "out_bass_mono", 0 }, { "out_clip", 0 },
+            { "pad_throw", 0 }, { "pad_wash", 0 }, { "pad_drop", 0 }, { "pad_riser", 0 } };
+        for (const auto& [id, v] : neutral)
+        {
+            auto* rp = p.getState().getParameter (id);
+            if (rp == nullptr) return juce::String (id) + " (missing)";
+            if (std::abs (rp->convertFrom0to1 (rp->getValue()) - v) > 1.0e-4f) return id;
+        }
+        return {};
+    }
+
     int runCompatCheck()
     {
         std::printf ("\n1.0.3 compatibility: saved sessions load with every new feature neutral\n");
+        int problems = 0;
+        {
+            // A new instance has the safety clip on; a 1.1 session saved with it on keeps it.
+            DeepTranceProcessor fresh;
+            auto* clip = fresh.getState().getParameter ("out_clip");
+            if (clip == nullptr || clip->getValue() < 0.5f) { ++problems; std::printf ("    new instance: Safety Clip should be on\n"); }
+            juce::MemoryBlock mb;
+            fresh.getStateInformation (mb);
+            DeepTranceProcessor reloaded;
+            reloaded.setStateInformation (mb.getData(), (int) mb.getSize());
+            if (reloaded.getState().getParameter ("out_clip")->getValue() < 0.5f) { ++problems; std::printf ("    1.1 session: Safety Clip was switched off on reload\n"); }
+        }
         const auto lines = juce::StringArray::fromLines (compatDir().getChildFile ("fingerprints.txt").loadFileAsString().trim());
         int bad = 0, checked = 0;
         for (const auto& line : lines)
@@ -228,6 +256,15 @@ namespace
             juce::MemoryBlock mb;
             juce::AudioProcessor::copyXmlToBinary (*xml, mb);
             ++checked;
+            {
+                DeepTranceProcessor loaded;
+                loaded.setStateInformation (mb.getData(), (int) mb.getSize());
+                if (const auto id = firstNonNeutral (loaded); id.isNotEmpty())
+                {
+                    ++bad;
+                    std::printf ("    %-24s loads with %s not neutral\n", name.toRawUTF8(), id.toRawUTF8());
+                }
+            }
             const auto got = renderState (mb);
 #if defined(__GNUC__) && ! defined(__clang__) && defined(__x86_64__)
             if (got != want) { ++bad; std::printf ("    %-24s DIFFERS from 1.0.3\n", name.toRawUTF8()); }
@@ -236,6 +273,7 @@ namespace
 #endif
         }
         if (checked == 0) { ++bad; std::printf ("    no compatibility states found\n"); }
+        bad += problems;
         std::printf (bad == 0 ? "COMPAT OK (%d states)\n" : "COMPAT: %d PROBLEM(S)\n", bad == 0 ? checked : bad);
         return bad;
     }
