@@ -211,6 +211,7 @@ void DeepTranceEngine::reset() noexcept
     holdingSound = false;
     transition = transitionTarget = 0.0f;
     swapHold = 0;
+    clearStage = 0;
     lastBlockPeak = 0.0f;
 
     // Start in the requested state with no fades or ramps pending.
@@ -317,6 +318,7 @@ void DeepTranceEngine::beginBlockSoundChange() noexcept
     }
     holdingSound = true;
     transitionTarget = 1.0f;
+    clearStage = 3;
 }
 
 // The output is fully dry, every module has been fed silence for 10 ms and no change is
@@ -328,6 +330,11 @@ void DeepTranceEngine::swapSound() noexcept
     transitionTarget = 0.0f;
     params = incoming;
     applyToModules (derive (params, inputs), true);
+    // Every module's own smoothed settings jump too: left gliding, a Vowel sweeping from
+    // the old formant to the new one (or a Swirl, Acid ... ) was heard as the new sound
+    // faded in (1.1: found by switching between random sounds).
+    gate.snap(); vowel.snap(); swirl.snap(); drift.snap(); acid.snap(); buildUp.snap();
+    punch.snap(); cloud.snap(); delay.snap(); abyss.snap(); pump.snap();
     outGainSm.setImmediate (dbToGain (clampf (params.outputGainDb, -24.0f, 24.0f)));
     mixSm.setImmediate (sat01 (params.mix));
     astralSm.setImmediate (params.combo == Combo::AstralProjection ? sat01 (params.comboAmount) : 0.0f);
@@ -335,7 +342,19 @@ void DeepTranceEngine::swapSound() noexcept
 
 void DeepTranceEngine::processChunk (float* left, float* right, int n, const TransportInfo& t) noexcept
 {
-    if (holdingSound && ! soundGate.busy() && transition >= 1.0f && swapHold >= swapHoldSamples)
+    // While held fully dry, the wet modules are emptied one per chunk (a few MB in all;
+    // spread out, no block pays for it at once). A new sound then starts its echoes,
+    // grains and reverb empty: kept, the old tail came back through the new settings
+    // (new delay time, pitch, feedback) as a gritty burst while the new sound faded in
+    // (1.1: found by switching between random sounds, about 1 change in 100).
+    if (holdingSound && transition >= 1.0f && clearStage > 0)
+    {
+        if (clearStage == 3) delay.reset();
+        if (clearStage == 2) abyss.reset();
+        if (clearStage == 1) cloud.reset();
+        --clearStage;
+    }
+    if (holdingSound && ! soundGate.busy() && transition >= 1.0f && swapHold >= swapHoldSamples && clearStage == 0)
         swapSound();
     clock.beginBlock (t, lastBlockPeak > 3.0e-5f);
 

@@ -18,7 +18,11 @@ namespace
     namespace dly  { constexpr float d16 = 2, d16D = 3, d8 = 5, d8D = 6, d4 = 8, d4D = 9; }
     namespace lfo  { constexpr float q8 = 4, q4 = 6, bar1 = 8, bar2 = 9, bar4 = 10, bar8 = 11; }
     namespace shp  { constexpr float sine = 0, tri = 1, sawUp = 2, square = 4, sh = 5, smooth = 6, custom = 7; }
-    namespace src  { constexpr float lfo1 = 1, lfo2 = 2, env = 3; }
+    namespace src  { constexpr float lfo1 = 1, lfo2 = 2, env = 3, gate = 4, pump = 5, rnd = 6; }
+    // 1.1
+    namespace ext  { constexpr float dotted = 1, tresillo = 2, psyRoll = 3, uplift = 4, synco = 5, eighths = 6, echo = 7, swell = 8; }
+    namespace pr   { constexpr float e8 = 0, q4 = 1, h2 = 2, bar = 3; }
+    namespace band { constexpr float full = 0, lows = 1, highs = 2; }
 
     float dest (ModDest d) { return (float) (int) d; }
 
@@ -166,6 +170,90 @@ const std::vector<FactoryPreset>& factoryPresets()
             slot (v, 0, src::lfo1, ModDest::AbyssMix, 40);
             list.push_back (make ("FX", "Pumping Space (drawn LFO)", v,
                                   { 0.0f, 0.1f, 0.3f, 0.5f, 0.65f, 0.75f, 0.85f, 0.9f, 0.95f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.6f, 0.2f }));
+        }
+
+        // ===== 1.1 "Euphoria" =====================================================
+        // Appended, never inserted: hosts list factory presets as numbered programs.
+
+        // --- Uplifting -------------------------------------------------------------
+        list.push_back (make ("Uplifting", "Sidechain Supersaw", {
+            { P::pumpOn, 1 }, { P::pumpRate, pr::q4 }, { P::pumpDepth, 65 }, { P::pumpShape, 55 },
+            { P::abyssDecay, 8 }, { P::abyssMix, 30 }, { P::delayMix, 18 }, { P::outBassMono, 120 } }));
+
+        list.push_back (make ("Uplifting", "Euphoria Pump Pad", {
+            { P::pumpOn, 1 }, { P::pumpBand, band::lows }, { P::pumpDepth, 80 }, { P::pumpShape, 60 },
+            { P::abyssSize, 90 }, { P::abyssDecay, 12 }, { P::abyssMix, 40 }, { P::abyssShimmer, 20 },
+            { P::driftAmount, 35 }, { P::outWidth, 130 } }));
+
+        list.push_back (make ("Uplifting", "Ping-Pong Gate", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::uplift }, { P::gateStereo, 100 }, { P::gateLength, 65 },
+            { P::delayMix, 15 }, { P::pumpOn, 1 }, { P::pumpDepth, 40 } }));
+
+        list.push_back (make ("Uplifting", "Breakdown Wash", {
+            { P::abyssDecay, 20 }, { P::abyssSize, 95 }, { P::abyssMix, 45 }, { P::abyssShimmer, 35 },
+            { P::cloudOn, 1 }, { P::cloudMix, 30 }, { P::cloudShimmer, 25 }, { P::riserBars, 2 } }));
+
+        // --- Psy -------------------------------------------------------------------
+        list.push_back (make ("Psy", "Rolling Bass Gate", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::psyRoll }, { P::gateLength, 55 }, { P::gateRelease, 15 },
+            { P::punchOn, 1 }, { P::punchAttack, 50 }, { P::delayOn, 0 }, { P::abyssMix, 10 },
+            { P::outBassMono, 150 } }));
+
+        list.push_back (make ("Psy", "Acid Triplets", {
+            { P::acidOn, 1 }, { P::acidCutoff, 700 }, { P::acidResonance, 80 }, { P::acidEnvMod, 70 }, { P::acidDrive, 50 },
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::tresillo }, { P::delayTimeSync, dly::d16 },
+            { P::delayFeedback, 45 }, { P::delayMix, 20 } }));
+
+        {
+            V v { { P::acidOn, 1 }, { P::acidCutoff, 1100 }, { P::acidResonance, 75 }, { P::gateOn, 1 },
+                  { P::gatePattern, pat::classic }, { P::delayMix, 15 } };
+            slot (v, 0, src::rnd, ModDest::AcidCutoff, 45);
+            list.push_back (make ("Psy", "Step Random Filter", v));
+        }
+
+        // --- Progressive -------------------------------------------------------------
+        list.push_back (make ("Progressive", "Swung Pluck Gate", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::synco }, { P::gateSwing, 35 }, { P::gateLength, 50 },
+            { P::delayMix, 22 }, { P::delayFeedback, 50 }, { P::abyssMix, 25 } }));
+
+        list.push_back (make ("Progressive", "Deep Pump Chords", {
+            { P::pumpOn, 1 }, { P::pumpRate, pr::h2 }, { P::pumpDepth, 50 }, { P::pumpShape, 70 },
+            { P::swirlDepth, 45 }, { P::abyssDecay, 7 }, { P::abyssMix, 30 }, { P::outWidth, 120 } }));
+
+        list.push_back (make ("Progressive", "Dotted Echo Gate", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::dotted }, { P::gateLength, 70 }, { P::gateStereo, 50 },
+            { P::delayMix, 25 } }));
+
+        // --- Vocals (more) -------------------------------------------------------------
+        list.push_back (make ("Vocals", "Throw-Ready Vocal (hold THROW)", {
+            { P::delayTimeSync, dly::d4 }, { P::delayMix, 12 }, { P::abyssMix, 18 }, { P::abyssDecay, 5 },
+            { P::swirlMix, 20 } }));
+
+        list.push_back (make ("Vocals", "Wide Pump Vox", {
+            { P::pumpOn, 1 }, { P::pumpDepth, 45 }, { P::pumpShape, 40 }, { P::outWidth, 140 },
+            { P::abyssMix, 30 }, { P::delayMix, 15 } }));
+
+        // --- Tech --------------------------------------------------------------------
+        list.push_back (make ("Tech", "Hard Eighths", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::eighths }, { P::gateFilter, 40 }, { P::punchOn, 1 },
+            { P::pumpOn, 1 }, { P::pumpBand, band::lows }, { P::pumpDepth, 55 }, { P::abyssMix, 15 } }));
+
+        list.push_back (make ("Tech", "Stereo Stab Gate", {
+            { P::gateOn, 1 }, { P::gatePatternExt, ext::synco }, { P::gateStereo, 100 }, { P::gateSwing, 20 },
+            { P::delayTimeSync, dly::d16D }, { P::delayMix, 15 } }));
+
+        // --- Build-Ups (more) --------------------------------------------------------------
+        list.push_back (make ("Build-Ups", "16-Bar Swell (hold RISER)", {
+            { P::riserBars, 2 }, { P::gateOn, 1 }, { P::gatePatternExt, ext::swell }, { P::abyssMix, 30 },
+            { P::swirlDepth, 60 } }));
+
+        {
+            // A 4-bar saw opens the gate further each bar while the pump keeps breathing.
+            V v { { P::gateOn, 1 }, { P::gatePatternExt, ext::echo }, { P::gateLength, 60 }, { P::gateDepth, 85 },
+                  { P::pumpOn, 1 }, { P::pumpDepth, 35 },
+                  { lfoId (0, "shape"), shp::sawUp }, { lfoId (0, "rate_sync"), lfo::bar4 } };
+            slot (v, 0, src::lfo1, ModDest::GateLength, 35);
+            list.push_back (make ("Build-Ups", "Gate Pump Riser", v));
         }
 
         return list;

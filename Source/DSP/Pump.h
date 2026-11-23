@@ -33,6 +33,7 @@ public:
 
     void prepare (double sampleRate) noexcept;
     void reset() noexcept;
+    void snap() noexcept { depthSm.setImmediate (depthSm.getTarget()); }
     void setParams (const PumpParams& p) noexcept;
 
     /** Where the pump is (in cycles) for this chunk. Call every chunk, on or off: the

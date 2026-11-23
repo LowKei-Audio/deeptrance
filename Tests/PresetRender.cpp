@@ -328,9 +328,25 @@ namespace
     }
 
     /** A/B keeps each slot's sound; Randomize never touches levels or the mix. */
+    /** Debug: one random sound started from silence: its onset vs its steady state. */
+    int probeFreshStart (int seed)
+    {
+        auto p = std::make_unique<DeepTranceProcessor>();
+        p->randomize (seed);
+        p->setPlayConfigDetails (2, 2, StaticRun::fs, StaticRun::block);
+        p->prepareToPlay (StaticRun::fs, StaticRun::block);
+        StaticRun run (*p);
+        run.play (112);
+        float onset = 0, steady = 0;
+        for (int i = 0; i < 8 * StaticRun::block; ++i) onset = std::max (onset, run.d (i));
+        for (int i = 10 * StaticRun::block; i < 112 * StaticRun::block; ++i) steady = std::max (steady, run.d (i));
+        std::printf ("  seed %d from silence: onset %.5f, steady %.5f, ratio %.2f\n", seed, (double) onset, (double) steady, (double) (onset / std::max (steady, 1.0e-3f)));
+        return 0;
+    }
+
     int runFeatureCheck()
     {
-        std::printf ("\nA/B compare and Randomize\n");
+        std::printf ("\nA/B compare and Randomize (%d parameters)\n", DeepTranceProcessor().getParameters().size());
         int bad = 0;
         auto value = [] (DeepTranceProcessor& p, const char* id) { auto* rp = p.getState().getParameter (id); return rp->convertFrom0to1 (rp->getValue()); };
         DeepTranceProcessor p;
@@ -364,7 +380,39 @@ namespace
         return p;
     }
 
-    int runStaticCheck (bool verbose)
+    /** Debug: plays sound `from` (a random seed), switches to `to`, and prints where the
+        sharpest moment around the change is and what each sound switches on. */
+    int probeRandomChange (int from, int to)
+    {
+        auto p = makeStaticProcessor();
+        StaticRun run (*p);
+        auto describe = [&] (const char* tag)
+        {
+            std::printf ("  %s:", tag);
+            for (auto* prm : p->getParameters())
+                if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                    if (std::abs (rp->getValue() - rp->getDefaultValue()) > 1.0e-4f)
+                        std::printf (" %s=%s", rp->getParameterID().toRawUTF8(), rp->getCurrentValueAsText().toRawUTF8());
+            std::printf ("\n");
+        };
+        p->randomize (from);
+        describe ("from");
+        run.play (112);
+        const int at = (int) run.l.size();
+        p->randomize (to);
+        describe ("to");
+        run.play (112);
+        int worstAt = 0; float worst = 0;
+        for (int i = at - 16; i < at + 8 * StaticRun::block; ++i) if (run.d (i) > worst) { worst = run.d (i); worstAt = i; }
+        float refB = 0, refA = 0;
+        for (int i = at - 104 * StaticRun::block; i < at - 2 * StaticRun::block; ++i) refB = std::max (refB, run.d (i));
+        for (int i = at + 9 * StaticRun::block; i < at + 102 * StaticRun::block; ++i) refA = std::max (refA, run.d (i));
+        std::printf ("  sharpest after the change: %.5f at +%d samples (ref before %.5f, after %.5f) ratio %.2f\n",
+                     (double) worst, worstAt - at, (double) refB, (double) refA, (double) run.spike (at, 8 * StaticRun::block, 104 * StaticRun::block, 102 * StaticRun::block));
+        return 0;
+    }
+
+    int runStaticCheck (bool verbose, int randomCount = 12, int randomSeed0 = 1)
     {
         std::printf ("\nStatic: loop wraps, restarts and sound changes\n");
         constexpr float kChangeLimit = 1.25f, kWrapLimit = 2.5f;
@@ -409,24 +457,31 @@ namespace
             auto p = makeStaticProcessor();
             StaticRun run (*p);
             const int segment = 112;   // ~1.2 s per sound
-            std::vector<std::pair<int, juce::String>> changes;
-            auto change = [&] (const juce::String& name, const std::function<void()>& f)
+            // Randomize and A/B can land on any gate pattern, swing or ping-pong: those
+            // repeat once per bar (1.74 s at 138 BPM), and their sharpest edge can come once
+            // per bar. Their sounds play for 2 bars, so the references hear a whole bar.
+            const int barSegment = (int) (2 * 4 * 60.0 / 138.0 * StaticRun::fs) / StaticRun::block + 8;
+            struct Change { int at; juce::String name; int seg; };
+            std::vector<Change> changes;
+            auto change = [&] (const juce::String& name, const std::function<void()>& f, int seg = 0)
             {
-                changes.push_back ({ (int) run.l.size(), name });
+                seg = seg > 0 ? seg : segment;
+                changes.push_back ({ (int) run.l.size(), name, seg });
                 f();
-                run.play (segment);
+                run.play (seg);
             };
             run.play (segment);
             for (int k = 1; k < numPresets; ++k)
                 change ("preset " + p->getProgramName (k), [&] { p->setCurrentProgram (k); });
             change ("preset " + p->getProgramName (0), [&] { p->setCurrentProgram (0); });
             // 1.1: Randomize and A/B compare are sound changes too.
-            for (int k = 0; k < 6; ++k)
-                change ("randomize #" + juce::String (k + 1), [&] { p->randomize(); });
-            change ("A/B: to B", [&] { p->selectAB (1); });
-            change ("B: edit (preset)", [&] { p->setCurrentProgram (numPresets - 2); });
-            change ("A/B: back to A", [&] { p->selectAB (0); });
-            change ("A/B: to B again", [&] { p->selectAB (1); });
+            run.play (barSegment - segment);   // the sound before the first random one: 2 bars too
+            for (int k = 0; k < randomCount; ++k)
+                change ("randomize seed " + juce::String (randomSeed0 + k), [&] { p->randomize (randomSeed0 + k); }, barSegment);
+            change ("A/B: to B", [&] { p->selectAB (1); }, barSegment);
+            change ("B: edit (preset)", [&] { p->setCurrentProgram (numPresets - 2); }, barSegment);
+            change ("A/B: back to A", [&] { p->selectAB (0); }, barSegment);
+            change ("A/B: to B again", [&] { p->selectAB (1); }, barSegment);
             for (int k : { 3, numPresets / 2, numPresets - 1 })
             {
                 auto other = makeStaticProcessor();
@@ -436,9 +491,31 @@ namespace
                 change ("host state load (" + other->getProgramName (k) + ")", [&, mb] { p->setStateInformation (mb.getData(), (int) mb.getSize()); });
             }
             if (! run.finite()) { ++bad; std::printf ("    NaN/Inf in sound changes\n"); }
-            const int seg = segment * StaticRun::block;
-            for (const auto& [at, name] : changes)
-                report (name, run.spike (at, 8 * StaticRun::block, seg - 8 * StaticRun::block, seg - 10 * StaticRun::block), kChangeLimit, worstChange);
+            for (size_t c = 0; c < changes.size(); ++c)
+            {
+                const auto& [at, name, segBlocks] = changes[c];
+                // Each reference spans the sound on that side of the change (the one before
+                // played for the previous change's segment).
+                const int before = (c == 0 ? segment : changes[c - 1].seg) * StaticRun::block;
+                const int after  = segBlocks * StaticRun::block;
+                const float ratio = run.spike (at, 8 * StaticRun::block, before - 8 * StaticRun::block, after - 10 * StaticRun::block);
+                report (name, ratio, kChangeLimit, worstChange);
+                if (ratio >= kChangeLimit)
+                {
+                    // Where it is, relative to the change request (the swap lands ~10-20 ms in).
+                    int worstAt = at; float m = 0.0f;
+                    for (int i = at - 16; i < at + 8 * StaticRun::block; ++i) if (run.d (i) > m) { m = run.d (i); worstAt = i; }
+                    std::printf ("      sharpest %.5f at +%d samples; L %.4f R %.4f around it\n", (double) m, worstAt - at,
+                                 (double) run.l[(size_t) worstAt], (double) run.r[(size_t) worstAt]);
+                    if (auto* dump = std::getenv ("DT_DUMP_DIR"))   // debug: raw samples around the change
+                    {
+                        juce::String csv;
+                        for (int i = at - 4096; i < at + 8192; ++i)
+                            csv << (i - at) << "," << run.l[(size_t) i] << "," << run.r[(size_t) i] << "\n";
+                        juce::File (dump).getChildFile (juce::File::createLegalFileName (name) + ".csv").replaceWithText (csv);
+                    }
+                }
+            }
         }
 
         std::printf ("    worst: wrap %.2f, restart %.2f, sound change %.2f\n", (double) worstWrap, (double) worstRestart, (double) worstChange);
@@ -456,6 +533,12 @@ int main (int argc, char** argv)
         return snapshotEditor (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
     if (argc > 1 && juce::String (argv[1]) == "--compat")
         return runCompatCheck() == 0 ? 0 : 1;
+    if (argc > 2 && juce::String (argv[1]) == "--probe-fresh")
+        return probeFreshStart (juce::String (argv[2]).getIntValue());
+    if (argc > 3 && juce::String (argv[1]) == "--probe-random")   // debug: --probe-random fromSeed toSeed
+        return probeRandomChange (juce::String (argv[2]).getIntValue(), juce::String (argv[3]).getIntValue());
+    if (argc > 2 && juce::String (argv[1]) == "--static-random")   // hunt: --static-random N [firstSeed]
+        return runStaticCheck (false, juce::String (argv[2]).getIntValue(), argc > 3 ? juce::String (argv[3]).getIntValue() : 1) == 0 ? 0 : 1;
     if (argc > 1 && juce::String (argv[1]) == "--static")   // the static check alone ("v": every event)
         return runStaticCheck (argc > 2 && juce::String (argv[2]) == "v") == 0 ? 0 : 1;
     const double sr = 48000.0;

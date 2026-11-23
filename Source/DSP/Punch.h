@@ -24,6 +24,8 @@ public:
 
     void prepare (double sampleRate);
     void reset() noexcept;
+    /** Jumps every smoothed setting to its target (a sound swap, taken over silence). */
+    void snap() noexcept { for (auto* s : { &attackSm, &sustainSm, &duckSm }) s->setImmediate (s->getTarget()); }
     void setParams (const PunchParams& p) noexcept;
     void setEnabled (bool on) noexcept { enabled = on; }
     void snapEnabled() noexcept        { amount = enabled ? 1.0f : 0.0f; }

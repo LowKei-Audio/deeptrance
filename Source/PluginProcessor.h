@@ -58,8 +58,9 @@ public:
     void selectAB (int slot);
     /** Copies the sound you hear into the other slot. */
     void copyToOtherSlot();
-    /** A new sound from safe, musical ranges (modules, rhythms, spaces; never levels). */
-    void randomize();
+    /** A new sound from safe, musical ranges (modules, rhythms, spaces; never levels).
+        seed 0 = a different sound every time; a fixed seed repeats one (tests). */
+    void randomize (juce::int64 seed = 0);
 
     /** Custom ("drawn") LFO shapes, 16 points 0..1. Thread-safe; saved with the session. */
     float getCustomPoint (int lfo, int point) const noexcept;

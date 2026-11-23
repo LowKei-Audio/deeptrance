@@ -294,10 +294,11 @@ void DeepTranceProcessor::copyToOtherSlot()
     abSlots[(size_t) (1 - abActive)] = stateGuard.getState();
 }
 
-void DeepTranceProcessor::randomize()
+void DeepTranceProcessor::randomize (juce::int64 seed)
 {
     lowkei::SoundChangeGate::Scope change (engine.soundGate);
     juce::Random rng;
+    if (seed != 0) rng.setSeed (seed);
     auto set = [this] (const char* id, float plain)
     {
         if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (plain));

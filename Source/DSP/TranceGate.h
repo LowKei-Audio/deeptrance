@@ -43,6 +43,8 @@ public:
 
     void prepare (double sampleRate);
     void reset() noexcept;
+    /** Jumps every smoothed setting to its target (a sound swap, taken over silence). */
+    void snap() noexcept { for (auto* s : { &depthSm, &filterSm }) s->setImmediate (s->getTarget()); }
     void setParams (const GateParams& p) noexcept;
     void process (float* left, float* right, int numSamples, const TransportClock& clock) noexcept;
 

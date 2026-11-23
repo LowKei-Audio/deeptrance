@@ -1146,6 +1146,33 @@ void testMod11()
     CHECK (changes == 3, "step random should change once per step (%d changes over 4 steps)", changes);
 }
 
+void testSwapCost()
+{
+    section ("sound change: clearing the wet buffers is cheap");
+    // swapSound() clears Cloud, Delay and Abyss on the audio thread, once per change.
+    // Measure the worst block that contains a swap against a normal block.
+    const double sr = 48000.0;
+    EngineParams p = allOn();
+    srRef() = sr;
+    DeepTranceEngine e; e.setParams (p); e.prepare (sr);
+    Stereo s = noise (sr, 4.0);
+    double worstSwap = 0.0, normal = 0.0; int normals = 0;
+    for (size_t off = 0, k = 0; off + 128 <= s.size(); off += 128, ++k)
+    {
+        const bool change = k % 200 == 100;
+        if (change) { lowkei::SoundChangeGate::Scope sc (e.soundGate); p.abyss.decaySec = (k % 400) ? 9.0f : 4.0f; e.setParams (p); }
+        const auto t0 = std::chrono::steady_clock::now();
+        e.process (&s.l[off], &s.r[off], 128, playing());
+        const double us = std::chrono::duration<double, std::micro> (std::chrono::steady_clock::now() - t0).count();
+        if (e.soundTransition() >= 1.0f || (k % 200) > 100 && (k % 200) < 110) worstSwap = std::max (worstSwap, us);
+        else { normal += us; ++normals; }
+    }
+    normal /= std::max (1, normals);
+    const double budget = 128.0 / sr * 1.0e6;   // one 128-sample block, in microseconds
+    std::printf ("  128-sample block: normal %.1f us, worst around a swap %.1f us (block lasts %.0f us)\n", normal, worstSwap, budget);
+    CHECK (worstSwap < budget * 0.5, "a sound change block should stay well inside a 128-sample block (%.0f us)", worstSwap);
+}
+
 void testStatic11()
 {
     section ("static: 1.1 features across loop wraps and switches");
@@ -1317,6 +1344,7 @@ int main (int argc, char** argv)
     testPads();
     testMod11();
     testStatic11();
+    testSwapCost();
     testCompat103();
 
     if (argc == 3 && std::string (argv[1]) == "--render")

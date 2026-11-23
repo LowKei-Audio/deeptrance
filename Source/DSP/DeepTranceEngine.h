@@ -131,8 +131,9 @@ public:
 
     /** Sound changes: wrap every bulk parameter change (preset, host program, state load)
         in a lowkei::SoundChangeGate::Scope on this gate (the processor does). The engine
-        keeps the old sound, fades to dry (10 ms), feeds every module silence for 10 ms,
-        takes every new setting at once and fades back in (30 ms). Over silence the
+        keeps the old sound, fades to dry (10 ms), feeds every module silence for 10 ms
+        (emptying Delay, Abyss and Cloud meanwhile), takes every new setting at once and
+        fades back in (30 ms). Over silence the
         change is taken at once. */
     lowkei::SoundChangeGate soundGate;
     float soundTransition() const noexcept { return transition; }   // for tests: 1 = fully dry
@@ -179,6 +180,7 @@ private:
     bool  holdingSound = false;
     float transition = 0.0f, transitionTarget = 0.0f, transitionOut = 0.0f, transitionIn = 0.0f;
     int   swapHold = 0, swapHoldSamples = 480;
+    int   clearStage = 0;             // wet modules still to empty before the swap (3 .. 0)
     float lastBlockPeak = 0.0f;   // in or out, last block: is anything sounding?
     CycleGlide astralGlide;       // Astral Projection's sweep across playhead jumps
 
