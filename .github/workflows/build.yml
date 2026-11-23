@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Publish a release with this tag, for example v1.0.2 (leave empty for a plain build)"
+        description: "Publish a release with this tag, for example v1.1.0 (leave empty for a plain build)"
         required: false
         default: ""
 
@@ -21,7 +21,7 @@ env:
 jobs:
   # Fast check: DSP unit tests only (no JUCE download).
   dsp-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: the 1.0.3 fingerprints are bit-exact per toolchain (GCC 13 here)
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -31,9 +31,27 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # The real processor on Linux (where the 1.0.3 fingerprints were made): every 1.0.3
+  # session must load neutral and render bit for bit; presets, static, A/B, Randomize.
+  linux-render:
+    needs: dsp-tests
+    runs-on: ubuntu-24.04   # pinned: the 1.0.3 fingerprints are bit-exact per toolchain (GCC 13 here)
+    steps:
+      - uses: actions/checkout@v4
+      - name: JUCE dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl-dev
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDT_BUILD_CLAP=OFF
+      - name: Build the renderer
+        run: cmake --build build --target DeepTranceRender --parallel
+      - name: Presets, static, 1.0.3 compatibility, A/B and Randomize
+        run: build/DeepTranceRender_artefacts/Release/DeepTranceRender
+
   # The real product: Windows VST3 + CLAP + Standalone, validated, packaged.
   windows:
-    needs: dsp-tests   # nothing is built or published unless the Linux tests pass
+    needs: [ dsp-tests, linux-render ]   # nothing is built or published unless the Linux checks pass
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

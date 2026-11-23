@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DeepTrance VERSION 1.0.3 LANGUAGES C CXX)
+project(DeepTrance VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,6 +27,7 @@ add_library(DeepTranceDSP STATIC
     Source/DSP/Cloud.cpp
     Source/DSP/FractalDelay.cpp
     Source/DSP/AbyssReverb.cpp
+    Source/DSP/Pump.cpp
     Source/DSP/DeepTranceEngine.cpp)
 
 target_include_directories(DeepTranceDSP PUBLIC Source)
@@ -139,7 +140,8 @@ if(DT_BUILD_PLUGIN)
             JucePlugin_Name="DeepTrance"
             JucePlugin_VersionString="${PROJECT_VERSION}"
             JUCE_WEB_BROWSER=0
-            JUCE_USE_CURL=0)
+            JUCE_USE_CURL=0
+            DT_COMPAT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Tests/compat")
         target_link_libraries(DeepTranceRender PRIVATE
             DeepTranceDSP
             juce::juce_audio_utils

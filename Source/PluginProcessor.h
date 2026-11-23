@@ -51,6 +51,17 @@ public:
     /** Loads a user preset file (parameters + drawn LFO shapes). */
     bool loadUserPreset (const juce::File& file);
 
+    // --- A/B compare and Randomize (message thread) -------------------------------------
+    /** Two complete sounds to compare. Switching keeps the edits made in each slot; the
+        other slot starts as a copy of the first. Held in memory for this session. */
+    int  getABSlot() const noexcept { return abActive; }
+    void selectAB (int slot);
+    /** Copies the sound you hear into the other slot. */
+    void copyToOtherSlot();
+    /** A new sound from safe, musical ranges (modules, rhythms, spaces; never levels).
+        seed 0 = a different sound every time; a fixed seed repeats one (tests). */
+    void randomize (juce::int64 seed = 0);
+
     /** Custom ("drawn") LFO shapes, 16 points 0..1. Thread-safe; saved with the session. */
     float getCustomPoint (int lfo, int point) const noexcept;
     void  setCustomPoint (int lfo, int point, float value);
@@ -68,6 +79,10 @@ private:
     dt::PresetManager presets;
     dt::DeepTranceEngine engine;
     juce::AudioBuffer<float> monoScratch; // right channel for mono layouts
+
+    void applySound (const juce::ValueTree& tree);   // a whole sound, as a sound change
+    std::array<juce::ValueTree, 2> abSlots;
+    int abActive = 0;
 
     /** One parameter -> engine field mapping. Built once; read lock-free per block. */
     struct Binding

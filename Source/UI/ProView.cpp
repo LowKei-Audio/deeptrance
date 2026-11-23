@@ -22,18 +22,31 @@ namespace
 // ============================================================================
 // ModuleSection
 // ============================================================================
-ModuleSection::ModuleSection (const juce::String& t, APVTS& state, const juce::Array<juce::RangedAudioParameter*>& params,
+ModuleSection::ModuleSection (const juce::String& t, DeepTranceProcessor& proc, const juce::Array<juce::RangedAudioParameter*>& params,
                               juce::RangedAudioParameter* onParam, bool withStepEditor)
     : title (t)
 {
+    auto& state = proc.getState();
+    const auto& engine = proc.getEngine();
     for (auto* p : params)
-        addAndMakeVisible (*controls.emplace_back (std::make_unique<ParamControl> (state, *p)));
+    {
+        const auto id = p->getParameterID();
+        std::unique_ptr<juce::Component> c;
+        if (id == pid::gatePatternExt) continue;                                  // part of the pattern menu
+        if (id == pid::gatePattern)    c = std::make_unique<PatternBox> (state);  // one menu, both lists
+        else if (id.startsWith ("pad_"))                                          // momentary pads
+            c = std::make_unique<PadButton> (state, id, p->getName (16).toUpperCase(), colours::warm,
+                                             id == pid::padRiser ? std::function<float()> ([&engine] { return engine.getRiser(); })
+                                                                 : std::function<float()>());
+        else c = std::make_unique<ParamControl> (state, *p);
+        addAndMakeVisible (*controls.emplace_back (std::move (c)));
+    }
 
     if (onParam != nullptr)
         addAndMakeVisible (*(onSwitch = std::make_unique<PillToggle> (state, onParam->getParameterID(), "ON", colours::accent2)));
 
     if (withStepEditor)
-        addAndMakeVisible (*(stepEditor = std::make_unique<StepEditor> (state)));
+        addAndMakeVisible (*(stepEditor = std::make_unique<StepEditor> (state, [&engine] { return engine.getGateStep(); })));
 }
 
 int ModuleSection::heightForWidth (int width) const
@@ -66,8 +79,12 @@ void ModuleSection::resized()
     const int cols = columnsFor (getWidth());
 
     for (size_t i = 0; i < controls.size(); ++i)
-        controls[i]->setBounds (r.getX() + (int) (i % (size_t) cols) * kCellW,
-                                r.getY() + (int) (i / (size_t) cols) * kCellH, kCellW, kCellH);
+    {
+        const juce::Rectangle<int> cell (r.getX() + (int) (i % (size_t) cols) * kCellW,
+                                         r.getY() + (int) (i / (size_t) cols) * kCellH, kCellW, kCellH);
+        // Pads are buttons: a square-ish block in the middle of the cell.
+        controls[i]->setBounds (dynamic_cast<PadButton*> (controls[i].get()) != nullptr ? cell.reduced (10, 26) : cell);
+    }
 
     if (stepEditor)
         stepEditor->setBounds (r.withTop (getHeight() - kStepH - kPad + 18).withHeight (kStepH - 22));
@@ -213,7 +230,6 @@ void ModulationSection::resized()
 // ============================================================================
 ProView::ProView (DeepTranceProcessor& p)
 {
-    auto& state = p.getState();
     const juce::StringArray skip { group::lfo1, group::lfo2, group::env, group::mod }; // drawn by ModulationSection
 
     for (const auto* grp : p.getParameterTree().getSubgroups (false))
@@ -233,7 +249,7 @@ ProView::ProView (DeepTranceProcessor& p)
                 params.add (rp);
             }
 
-        auto& s = sections.emplace_back (std::make_unique<ModuleSection> (grp->getName(), state, params, onParam, hasSteps));
+        auto& s = sections.emplace_back (std::make_unique<ModuleSection> (grp->getName(), p, params, onParam, hasSteps));
         content.addAndMakeVisible (*s);
     }
 

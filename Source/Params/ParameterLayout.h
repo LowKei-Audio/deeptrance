@@ -17,6 +17,14 @@ juce::String lfoId (int index, const char* suffix);
 /** "mod1_source" .. "mod8_amount" for slot 0..7. Suffixes: source, dest, amount. */
 juce::String modId (int slot, const char* suffix);
 
+/** Saved-state format version, stored on the state tree. 1.0.x states have none. */
+inline constexpr int kStateVersion = 2;
+inline constexpr const char* kStateVersionId = "stateVersion";
+
+/** Brings a loaded state (session or preset) up to the current format, in place.
+    1.0.x: Safety Clip did not exist, so it is set off: an old sound stays bit-exact. */
+void migrateState (juce::ValueTree& state);
+
 /** Parameter group IDs, in display order. */
 namespace group
 {
@@ -26,5 +34,7 @@ namespace group
     inline constexpr const char* lfo2 = "lfo2";
     inline constexpr const char* env  = "env";
     inline constexpr const char* mod  = "mod";
+    inline constexpr const char* pump   = "pump";
+    inline constexpr const char* output = "output";
 }
 } // namespace dt

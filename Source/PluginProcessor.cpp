@@ -41,6 +41,11 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::buildUpNoise, [] (E& e, float v, int) { e.buildUpNoise = pct (v); });
     bind (P::combo,        [] (E& e, float v, int) { e.combo = (dt::Combo) juce::jlimit (0, 2, idx (v)); });
     bind (P::comboAmount,  [] (E& e, float v, int) { e.comboAmount = pct (v); });
+    bind (P::padThrow,     [] (E& e, float v, int) { e.pads.throwOn = on (v); });
+    bind (P::padWash,      [] (E& e, float v, int) { e.pads.washOn = on (v); });
+    bind (P::padDrop,      [] (E& e, float v, int) { e.pads.dropOn = on (v); });
+    bind (P::padRiser,     [] (E& e, float v, int) { e.pads.riserOn = on (v); });
+    bind (P::riserBars,    [] (E& e, float v, int) { e.pads.riserBars = idx (v); });
 
     bind (P::gateOn,      [] (E& e, float v, int) { e.gateOn = on (v); });
     bind (P::gateRate,    [] (E& e, float v, int) { e.gate.rateIndex = idx (v); });
@@ -50,6 +55,9 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::gateAttack,  [] (E& e, float v, int) { e.gate.attackMs = v; });
     bind (P::gateRelease, [] (E& e, float v, int) { e.gate.releaseMs = v; });
     bind (P::gateFilter,  [] (E& e, float v, int) { e.gate.filterAmount = pct (v); });
+    bind (P::gateSwing,   [] (E& e, float v, int) { e.gate.swing = pct (v); });
+    bind (P::gateStereo,  [] (E& e, float v, int) { e.gate.stereo = pct (v); });
+    bind (P::gatePatternExt, [] (E& e, float v, int) { e.gate.patternExt = idx (v); });
     for (int i = 0; i < dt::TranceGate::kNumSteps; ++i)
         bind (dt::gateStepId (i), [] (E& e, float v, int k) { e.gate.steps[(size_t) k] = pct (v); }, i);
 
@@ -124,6 +132,16 @@ DeepTranceProcessor::DeepTranceProcessor()
     bind (P::abyssMix,      [] (E& e, float v, int) { e.abyss.mix = pct (v); });
     bind (P::abyssFreeze,   [] (E& e, float v, int) { e.abyss.freeze = on (v); });
 
+    bind (P::pumpOn,    [] (E& e, float v, int) { e.pumpOn = on (v); });
+    bind (P::pumpRate,  [] (E& e, float v, int) { e.pump.rateIndex = idx (v); });
+    bind (P::pumpDepth, [] (E& e, float v, int) { e.pump.depth = pct (v); });
+    bind (P::pumpShape, [] (E& e, float v, int) { e.pump.shape = pct (v); });
+    bind (P::pumpBand,  [] (E& e, float v, int) { e.pump.band = idx (v); });
+
+    bind (P::outWidth,    [] (E& e, float v, int) { e.output.width = pct (v); });
+    bind (P::outBassMono, [] (E& e, float v, int) { e.output.bassMonoHz = v < 40.0f ? 0.0f : v; });
+    bind (P::outClip,     [] (E& e, float v, int) { e.output.clip = on (v); });
+
     for (int i = 0; i < 2; ++i)
     {
         bind (dt::lfoId (i, "shape"),     [] (E& e, float v, int k) { e.lfo[(size_t) k].shape = (dt::LfoShape) juce::jlimit (0, 7, idx (v)); }, i);
@@ -147,6 +165,8 @@ DeepTranceProcessor::DeepTranceProcessor()
 
     resetCustomShapes();
     apvts.state.setProperty (kUiMode, "easy", nullptr);
+    // A new instance is current by definition: stamp the version (do not migrate it).
+    apvts.state.setProperty (dt::kStateVersionId, dt::kStateVersion, nullptr);
 
     // After a host load: snap each parameter to its exact saved value (see PresetManager).
     stateGuard.onApplied = [this] { dt::PresetManager::syncParametersToState (apvts); };
@@ -248,6 +268,84 @@ bool DeepTranceProcessor::loadUserPreset (const juce::File& file)
     return true;
 }
 
+// --- A/B compare and Randomize -------------------------------------------------------
+void DeepTranceProcessor::applySound (const juce::ValueTree& source)
+{
+    lowkei::SoundChangeGate::Scope change (engine.soundGate);
+    auto tree = source.createCopy();
+    tree.setProperty (kUiMode, apvts.state.getProperty (kUiMode), nullptr);   // the view is not part of a sound
+    stateGuard.setState (tree);
+    loadCustomShapesFrom (tree);
+}
+
+void DeepTranceProcessor::selectAB (int slot)
+{
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == abActive) return;
+    abSlots[(size_t) abActive] = stateGuard.getState();
+    if (! abSlots[(size_t) slot].isValid())
+        abSlots[(size_t) slot] = abSlots[(size_t) abActive].createCopy();   // first visit: same sound
+    abActive = slot;
+    applySound (abSlots[(size_t) slot]);
+}
+
+void DeepTranceProcessor::copyToOtherSlot()
+{
+    abSlots[(size_t) (1 - abActive)] = stateGuard.getState();
+}
+
+void DeepTranceProcessor::randomize (juce::int64 seed)
+{
+    lowkei::SoundChangeGate::Scope change (engine.soundGate);
+    juce::Random rng;
+    if (seed != 0) rng.setSeed (seed);
+    auto set = [this] (const char* id, float plain)
+    {
+        if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (plain));
+    };
+    auto range  = [&rng] (float lo, float hi) { return lo + rng.nextFloat() * (hi - lo); };
+    auto chance = [&rng] (float p) { return rng.nextFloat() < p ? 1.0f : 0.0f; };
+    auto pick   = [&rng] (std::initializer_list<float> v) { return *(v.begin() + rng.nextInt ((int) v.size())); };
+
+    // Start from Init, so nothing from the last sound (mod matrix, combos, pads) lingers.
+    presets.loadFactory (0);
+    resetCustomShapes();
+    namespace P = dt::pid;
+
+    set (P::swirlOn, chance (0.7f));   set (P::swirlMode, pick ({ 0, 0, 1, 2 }));
+    set (P::swirlRate, pick ({ 3, 4, 5, 6, 7 }));   set (P::swirlDepth, range (20, 80));
+    set (P::swirlFeedback, range (10, 70));          set (P::swirlMix, range (15, 55));
+
+    set (P::driftOn, chance (0.6f));   set (P::driftAmount, range (10, 60));   set (P::driftMix, range (20, 50));
+
+    if (chance (0.45f) > 0.0f)
+    {
+        set (P::gateOn, 1);   set (P::gateRate, pick ({ 0, 1, 1, 3 }));
+        if (chance (0.5f) > 0.0f) set (P::gatePatternExt, (float) rng.nextInt ({ 1, 9 }));
+        else                      set (P::gatePattern, (float) rng.nextInt ({ 1, 9 }));
+        set (P::gateLength, range (40, 90));   set (P::gateFilter, chance (0.5f) * range (0, 50));
+        set (P::gateSwing, chance (0.3f) * range (10, 40));   set (P::gateStereo, chance (0.25f) * range (50, 100));
+    }
+
+    if (chance (0.2f) > 0.0f) { set (P::vowelOn, 1); set (P::vowelMorph, range (0, 4)); set (P::vowelLfoDepth, range (0, 80)); set (P::vowelMix, range (50, 90)); }
+    if (chance (0.15f) > 0.0f) { set (P::acidOn, 1); set (P::acidCutoff, range (300, 2500)); set (P::acidResonance, range (40, 85)); set (P::acidDrive, range (20, 60)); }
+    if (chance (0.2f) > 0.0f) { set (P::cloudOn, 1); set (P::cloudSize, range (40, 200)); set (P::cloudDensity, range (10, 50)); set (P::cloudMix, range (25, 60)); set (P::cloudShimmer, chance (0.4f) * range (0, 40)); }
+
+    set (P::delayOn, chance (0.75f));   set (P::delayTimeSync, pick ({ 3, 5, 6, 6, 8 }));
+    set (P::delayFeedback, range (20, 65));   set (P::delayMix, range (8, 30));
+    set (P::delayPitch, pick ({ 0, 0, 0, 0, 12, 7, -12, 5 }));
+
+    set (P::abyssOn, chance (0.85f));   set (P::abyssDecay, range (2, 14));   set (P::abyssSize, range (40, 95));
+    set (P::abyssMix, range (15, 45));   set (P::abyssDamping, range (25, 65));   set (P::abyssShimmer, chance (0.3f) * range (0, 40));
+
+    if (chance (0.35f) > 0.0f)
+    {
+        set (P::pumpOn, 1);   set (P::pumpRate, pick ({ 1, 1, 1, 2 }));   set (P::pumpDepth, range (30, 75));
+        set (P::pumpShape, range (30, 70));   set (P::pumpBand, pick ({ 0, 1 }));
+    }
+    presets.setCustomName ("Random");
+}
+
 // --- View mode and custom LFO shapes ------------------------------------------------
 bool DeepTranceProcessor::isProMode() const { return apvts.state.getProperty (kUiMode).toString() == "pro"; }
 void DeepTranceProcessor::setProMode (bool pro) { apvts.state.setProperty (kUiMode, pro ? "pro" : "easy", nullptr); }
@@ -309,7 +407,8 @@ void DeepTranceProcessor::setStateInformation (const void* data, int sizeInBytes
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (stateGuard.stateType()))
         {
-            const auto tree = juce::ValueTree::fromXml (*xml);
+            auto tree = juce::ValueTree::fromXml (*xml);
+            dt::migrateState (tree);   // 1.0.x sessions: every 1.1 feature neutral
             // Parameters at once; apvts.state itself on the message thread (onApplied).
             stateGuard.setState (tree);
             loadCustomShapesFrom (tree);   // atomics: safe on any thread

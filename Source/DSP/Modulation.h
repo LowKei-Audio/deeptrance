@@ -147,8 +147,34 @@ private:
     float     env = 0.0f, value = 0.0f, att = 0.0f, rel = 0.0f;
 };
 
-enum class ModSource { None = 0, Lfo1, Lfo2, Envelope };
-inline constexpr std::array<const char*, 4> kModSourceNames { "None", "LFO 1", "LFO 2", "Envelope" };
+/** Order is part of the saved-state format: append only. */
+enum class ModSource { None = 0, Lfo1, Lfo2, Envelope, Gate, Pump, StepRandom };
+inline constexpr std::array<const char*, 7> kModSourceNames {
+    "None", "LFO 1", "LFO 2", "Envelope", "Gate", "Pump", "Step Random" };
+
+/** Current value of every modulation source (LFOs and Step Random -1..1, the rest 0..1). */
+struct ModValues
+{
+    float lfo1 = 0.0f, lfo2 = 0.0f, env = 0.0f;
+    float gate = 0.0f;  // trance gate level, 1 = open (0 while the gate is off)
+    float pump = 0.0f;  // pump duck, 1 = bottom of the dip (runs even with Pump off)
+    float rnd  = 0.0f;  // a new random value every gate step
+
+    float get (int source) const noexcept
+    {
+        switch ((ModSource) source)
+        {
+            case ModSource::Lfo1:       return lfo1;
+            case ModSource::Lfo2:       return lfo2;
+            case ModSource::Envelope:   return env;
+            case ModSource::Gate:       return gate;
+            case ModSource::Pump:       return pump;
+            case ModSource::StepRandom: return rnd;
+            case ModSource::None:       break;
+        }
+        return 0.0f;
+    }
+};
 
 struct ModSlot
 {

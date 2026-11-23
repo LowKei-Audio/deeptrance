@@ -14,6 +14,8 @@ class BuildUp
 public:
     void prepare (double sampleRate);
     void reset() noexcept;
+    /** Jumps every smoothed setting to its target (a sound swap, taken over silence). */
+    void snap() noexcept { for (auto* s : { &amountSm, &noiseSm }) s->setImmediate (s->getTarget()); }
     void setParams (float amount, float noiseLevel) noexcept;
     void process (float* left, float* right, int numSamples) noexcept;
 

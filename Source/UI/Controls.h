@@ -4,6 +4,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
 
 class DeepTranceProcessor;
 
@@ -94,12 +95,58 @@ private:
     std::vector<juce::Point<float>> stars; // normalised star field, generated once
 };
 
+/** Momentary performance pad bound to a bool parameter (Throw, Wash, Drop, Riser).
+    Held = on, released = off; Shift-click latches it on until the next click. The
+    optional `progress` (0..1) is drawn as a fill (the Riser's climb). */
+class PadButton final : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+{
+public:
+    PadButton (APVTS&, const juce::String& paramId, const juce::String& caption, juce::Colour colour,
+               std::function<float()> progress = {});
+    ~PadButton() override;
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+private:
+    void timerCallback() override
+    {
+        if (latched && param->getValue() < 0.5f) latched = false;   // automation or a preset released it
+        repaint();
+    }
+    void set (bool on);
+    juce::RangedAudioParameter* param = nullptr;
+    juce::String caption;
+    juce::Colour colour;
+    std::function<float()> progress;
+    bool latched = false, held = false;
+};
+
+/** One menu for the gate pattern: Custom, the 1.0 patterns and the 1.1 ones, written to
+    "Gate Pattern" and "Gate Pattern+" (kept as two parameters for DAW automation). */
+class PatternBox final : public juce::Component, private juce::Timer
+{
+public:
+    PatternBox (APVTS&, const juce::String& labelText = "Gate Pattern");
+    ~PatternBox() override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+    int  currentItem() const;   // combo item id
+    juce::Label label;
+    juce::ComboBox box;
+    juce::RangedAudioParameter* pattern = nullptr;
+    juce::RangedAudioParameter* patternExt = nullptr;
+};
+
 /** Draw-to-edit 16-step gate pattern. Always shows the pattern that is actually
-    playing; drawing on a factory pattern copies it into Custom first. */
+    playing; drawing on a factory pattern copies it into Custom first. With a
+    `playhead` (current step, or -1) the playing step is lit as the music runs. */
 class StepEditor final : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
-    explicit StepEditor (APVTS&);
+    explicit StepEditor (APVTS&, std::function<int()> playhead = {});
     ~StepEditor() override;
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -115,8 +162,10 @@ private:
     void  convertToCustom();
 
     juce::RangedAudioParameter* pattern = nullptr;
+    juce::RangedAudioParameter* patternExt = nullptr;
     std::array<juce::RangedAudioParameter*, 16> steps {};
     std::array<bool, 16> inGesture {};
+    std::function<int()> playhead;
 };
 
 /** Drawable 16-point LFO shape (used when the LFO's shape is "Custom"). Also shows the live LFO value. */

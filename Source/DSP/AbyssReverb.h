@@ -30,6 +30,8 @@ public:
 
     void prepare (double sampleRate);
     void reset() noexcept;
+    /** Jumps every smoothed setting to its target (a sound swap, taken over silence). */
+    void snap() noexcept { for (auto* s : { &sizeSm, &mixSm, &freezeSm, &shimmerSm, &preDelaySm, &widthSm, &modSm }) s->setImmediate (s->getTarget()); }
     void setParams (const AbyssParams& p) noexcept;
     void setEnabled (bool on) noexcept { spill.setEnabled (on); }
     void snapEnabled() noexcept        { spill.snap(); }

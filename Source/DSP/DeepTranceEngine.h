@@ -5,10 +5,11 @@
 //   Input -> Gate -> Vowel -> Swirl -> Drift -> Acid -> Build-Up (HPF + riser)
 //         -> Punch (transient shaping + wet ducking)
 //         -> Cloud -> Fractal Delay -> Abyss       (wet parts ducked by Punch)
-//         -> Astral sweep (combo) -> Mix -> Output
+//         -> Astral sweep (combo) -> Mix -> Pump -> Output gain
+//         -> Width / Bass Mono / Drop / Safety clip -> Output
 //
 // Parameter flow every 32-sample chunk:
-//   user values -> mod matrix -> Easy macros -> Build-Up -> Combo -> modules
+//   user values -> mod matrix -> Easy macros -> Build-Up (+ Riser) -> Combo -> Pads -> modules
 // The engine is real-time safe: all memory is allocated in prepare().
 
 #include "AbyssReverb.h"
@@ -20,6 +21,8 @@
 #include "FractalDelay.h"
 #include "Modulation.h"
 #include "ModuleFader.h"
+#include "OutputStage.h"
+#include "Pump.h"
 #include "Punch.h"
 #include "Swirl.h"
 #include "TranceGate.h"
@@ -31,6 +34,30 @@ namespace dt
 {
 enum class Combo { Off = 0, AstralProjection, AcidBath };
 inline constexpr std::array<const char*, 3> kComboNames { "Off", "Astral Projection", "Acid Bath" };
+
+/** Performance pads (Easy view). Momentary: each acts while held.
+    Throw  feeds the delay and reverb hard; on release their input stops and the tail rings
+           out at full level, easing back over 2 bars.
+    Wash   freezes the reverb and brings it up; eases back over 1 bar on release.
+    Drop   cuts the lows (kick and bass vanish) for the moment before a drop.
+    Riser  runs Build-Up from 0 to 100% over 4, 8 or 16 bars; let go at the drop. */
+struct PadParams
+{
+    bool throwOn = false, washOn = false, dropOn = false, riserOn = false;
+    int  riserBars = 1;   // index into kRiserBars
+};
+inline constexpr std::array<int, 3> kRiserBars { 4, 8, 16 };
+inline constexpr std::array<const char*, 3> kRiserBarNames { "4 Bars", "8 Bars", "16 Bars" };
+
+/** Engine-side state that derive() reads besides the mod sources. */
+struct DeriveInputs
+{
+    ModValues mod;
+    float throwAmt = 0.0f;  // 1 held, then easing to 0 after release
+    float washAmt  = 0.0f;
+    float riser    = 0.0f;  // Build-Up level the Riser pad has reached
+    bool  throwHeld = false, washHeld = false;
+};
 
 /** Easy-view intensity macros. 0.5 = exactly the Pro settings, 0 = none, 1 = double. */
 struct MacroParams
@@ -46,6 +73,7 @@ struct EngineParams
 
     bool gateOn = false, vowelOn = false, swirlOn = true, driftOn = true, acidOn = false;
     bool punchOn = false, cloudOn = false, delayOn = true, abyssOn = true;
+    bool pumpOn = false;   // 1.1
 
     GateParams  gate;
     VowelParams vowel;
@@ -56,6 +84,9 @@ struct EngineParams
     CloudParams cloud;
     DelayParams delay;
     AbyssParams abyss;
+    PumpParams  pump;      // 1.1
+    OutputParams output;   // 1.1
+    PadParams   pads;      // 1.1
 
     float buildUp      = 0.0f; // 0..1
     float buildUpNoise = 0.5f; // 0..1 riser level
@@ -81,6 +112,8 @@ enum class ModDest
     DelayFeedback, DelayPitch, DelayTone, DelayMix,
     AbyssSize, AbyssDecay, AbyssShimmer, AbyssMix,
     PunchAttack, BuildUp, GlobalMix,
+    // 1.1
+    SwirlSpeed, GateLength, AbyssDamping, VowelResonance, PumpDepth, OutputWidth,
     Count
 };
 const std::array<const char*, (size_t) ModDest::Count>& modDestinationNames() noexcept;
@@ -98,8 +131,9 @@ public:
 
     /** Sound changes: wrap every bulk parameter change (preset, host program, state load)
         in a lowkei::SoundChangeGate::Scope on this gate (the processor does). The engine
-        keeps the old sound, fades to dry (10 ms), feeds every module silence for 10 ms,
-        takes every new setting at once and fades back in (30 ms). Over silence the
+        keeps the old sound, fades to dry (10 ms), feeds every module silence for 10 ms
+        (emptying Delay, Abyss and Cloud meanwhile), takes every new setting at once and
+        fades back in (30 ms). Over silence the
         change is taken at once. */
     lowkei::SoundChangeGate soundGate;
     float soundTransition() const noexcept { return transition; }   // for tests: 1 = fully dry
@@ -110,14 +144,23 @@ public:
     /** Zero latency: every module is latency-free (wet delays are part of the effect). */
     static constexpr int getLatencySamples() noexcept { return 0; }
 
-    /** Applies modulation, macros, Build-Up and combo to user params (public for tests). */
-    static EngineParams derive (const EngineParams& user, float lfo1, float lfo2, float env) noexcept;
+    /** Applies modulation, macros, Build-Up, combo and the pads to user params (public for tests). */
+    static EngineParams derive (const EngineParams& user, const DeriveInputs& in) noexcept;
+    static EngineParams derive (const EngineParams& user, float lfo1, float lfo2, float env) noexcept
+    {
+        DeriveInputs in; in.mod.lfo1 = lfo1; in.mod.lfo2 = lfo2; in.mod.env = env;
+        return derive (user, in);
+    }
 
     // Live values for the UI (read from the message thread; benign races on floats).
     float getLfoValue (int i) const noexcept { return lfoOut[i]; }
     float getEnvValue() const noexcept       { return envOut; }
+    const ModValues& getModValues() const noexcept { return modValues; }
     float getGateEnvelope() const noexcept   { return gate.getEnvelope(); }
     int   getActiveGrains() const noexcept   { return cloud.activeGrains(); }
+    int   getGateStep() const noexcept       { return gateStep; }     // 0..15, follows the transport
+    float getPumpDuck() const noexcept       { return modValues.pump; }
+    float getRiser() const noexcept          { return inputs.riser; }  // 0..1 while the Riser pad is held
 
 private:
     void processChunk (float* left, float* right, int n, const TransportInfo& t) noexcept;
@@ -137,6 +180,7 @@ private:
     bool  holdingSound = false;
     float transition = 0.0f, transitionTarget = 0.0f, transitionOut = 0.0f, transitionIn = 0.0f;
     int   swapHold = 0, swapHoldSamples = 480;
+    int   clearStage = 0;             // wet modules still to empty before the swap (3 .. 0)
     float lastBlockPeak = 0.0f;   // in or out, last block: is anything sounding?
     CycleGlide astralGlide;       // Astral Projection's sweep across playhead jumps
 
@@ -151,7 +195,16 @@ private:
     Cloud          cloud;
     FractalDelay   delay;
     AbyssReverb    abyss;
-    ModuleFader    gateFader, vowelFader, swirlFader, driftFader, acidFader, buildFader;
+    Pump           pump;
+    OutputStage    output;
+    ModuleFader    gateFader, vowelFader, swirlFader, driftFader, acidFader, buildFader, pumpFader;
+
+    // 1.1 sources and pad state (audio thread).
+    void updatePads (int n) noexcept;
+    ModValues    modValues;
+    DeriveInputs inputs;
+    Random       stepRng { 0x51E9u };
+    int          gateStep = 0, lastRandStep = -1;
 
     Lfo              lfo[2];
     EnvelopeFollower envFollower;

@@ -7,7 +7,16 @@ using namespace dt::ui;
 // ============================================================================
 PresetBar::PresetBar (DeepTranceProcessor& p) : processor (p)
 {
-    for (auto* b : { &prev, &next, &name, &save }) addAndMakeVisible (*b);
+    for (auto* b : { &prev, &next, &name, &save, &slotA, &slotB, &copy, &dice }) addAndMakeVisible (*b);
+    for (auto* b : { &slotA, &slotB }) { b->setClickingTogglesState (false); }
+    slotA.setTooltip ("Sound A. Edit freely, then click B to compare; each keeps its own edits.");
+    slotB.setTooltip ("Sound B. Starts as a copy of A the first time you switch to it.");
+    copy.setTooltip ("Copy the sound you hear into the other slot (A to B, or B to A)");
+    dice.setTooltip ("A new random sound from safe, musical settings. Levels and the mix are never touched.");
+    slotA.onClick = [this] { processor.selectAB (0); timerCallback(); };
+    slotB.onClick = [this] { processor.selectAB (1); timerCallback(); };
+    copy.onClick  = [this] { processor.copyToOtherSlot(); };
+    dice.onClick  = [this] { processor.randomize(); timerCallback(); };
     prev.setTooltip ("Previous preset");
     next.setTooltip ("Next preset");
     name.setTooltip ("Browse presets");
@@ -26,6 +35,8 @@ void PresetBar::timerCallback()
 {
     const auto n = processor.getPresets().currentPresetName();
     if (name.getButtonText() != n) name.setButtonText (n);
+    slotA.setToggleState (processor.getABSlot() == 0, juce::dontSendNotification);
+    slotB.setToggleState (processor.getABSlot() == 1, juce::dontSendNotification);
 }
 
 void PresetBar::paint (juce::Graphics&) {}
@@ -33,8 +44,16 @@ void PresetBar::paint (juce::Graphics&) {}
 void PresetBar::resized()
 {
     auto r = getLocalBounds();
-    save.setBounds (r.removeFromRight (64));
-    r.removeFromRight (8);
+    save.setBounds (r.removeFromRight (58));
+    r.removeFromRight (6);
+    dice.setBounds (r.removeFromRight (72));
+    r.removeFromRight (10);
+    copy.setBounds (r.removeFromRight (52));
+    r.removeFromRight (3);
+    slotB.setBounds (r.removeFromRight (30));
+    r.removeFromRight (3);
+    slotA.setBounds (r.removeFromRight (30));
+    r.removeFromRight (10);
     prev.setBounds (r.removeFromLeft (32));
     next.setBounds (r.removeFromRight (32));
     name.setBounds (r.reduced (4, 0));
@@ -151,8 +170,8 @@ DeepTranceEditor::DeepTranceEditor (DeepTranceProcessor& p)
     proButton.onClick  = [this] { if (proButton.getToggleState())  showView (true); };
 
     setResizable (true, true);
-    setResizeLimits (860, 600, 1800, 1300);
-    setSize (1000, 680);
+    setResizeLimits (980, 720, 1800, 1400);   // 980: ten module switches stay readable
+    setSize (1040, 780);   // 1.1: room for the performance row
     showView (processor.isProMode());
 }
 
@@ -201,7 +220,7 @@ void DeepTranceEditor::resized()
     easyButton.setBounds (header.removeFromRight (70));
     header.removeFromLeft (240);
     header.removeFromRight (24);
-    presetBar.setBounds (header.withSizeKeepingCentre (juce::jmin (460, header.getWidth()), header.getHeight()));
+    presetBar.setBounds (header.withSizeKeepingCentre (juce::jmin (700, header.getWidth()), header.getHeight()));
 
     r.removeFromTop (10);
     r.removeFromBottom (12);
