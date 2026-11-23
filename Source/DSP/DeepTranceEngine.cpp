@@ -15,7 +15,9 @@ const std::array<const char*, (size_t) ModDest::Count>& modDestinationNames() no
         "Cloud Position", "Cloud Size", "Cloud Density", "Cloud Pitch", "Cloud Jitter", "Cloud Mix",
         "Delay Feedback", "Delay Pitch", "Delay Tone", "Delay Mix",
         "Abyss Size", "Abyss Decay", "Abyss Shimmer", "Abyss Mix",
-        "Punch Attack", "Build-Up", "Global Mix" };
+        "Punch Attack", "Build-Up", "Global Mix",
+        // 1.1
+        "Swirl Speed", "Gate Length", "Abyss Damping", "Vowel Resonance", "Pump Depth", "Output Width" };
     return names;
 }
 
@@ -57,6 +59,13 @@ namespace
             case ModDest::PunchAttack:   p.punch.attack      += 2.0f * m; break;
             case ModDest::BuildUp:       p.buildUp           += m; break;
             case ModDest::GlobalMix:     p.mix               += m; break;
+            // 1.1
+            case ModDest::SwirlSpeed:     p.swirl.speedMul   *= std::exp2 (2.0f * std::max (0.0f, m)); break; // up to 4x faster
+            case ModDest::GateLength:     p.gate.length      += m; break;
+            case ModDest::AbyssDamping:   p.abyss.damping    += m; break;
+            case ModDest::VowelResonance: p.vowel.resonance  += m; break;
+            case ModDest::PumpDepth:      p.pump.depth       += m; break;
+            case ModDest::OutputWidth:    p.output.width     += m; break;
             case ModDest::None: case ModDest::Count: break;
         }
     }
@@ -64,16 +73,16 @@ namespace
     float sat01 (float v) noexcept { return clampf (v, 0.0f, 1.0f); }
 }
 
-EngineParams DeepTranceEngine::derive (const EngineParams& user, float lfo1, float lfo2, float env) noexcept
+EngineParams DeepTranceEngine::derive (const EngineParams& user, const DeriveInputs& in) noexcept
 {
     EngineParams p = user;
 
     // 1. Modulation matrix.
     for (const auto& slot : user.mod)
     {
-        if (slot.source == 0 || slot.dest <= 0 || slot.dest >= (int) ModDest::Count || slot.amount == 0.0f) continue;
-        const float src = slot.source == 1 ? lfo1 : slot.source == 2 ? lfo2 : env;
-        applyMod (p, (ModDest) slot.dest, slot.amount * src);
+        if (slot.source <= 0 || slot.source >= (int) kModSourceNames.size()) continue;
+        if (slot.dest <= 0 || slot.dest >= (int) ModDest::Count || slot.amount == 0.0f) continue;
+        applyMod (p, (ModDest) slot.dest, slot.amount * in.mod.get (slot.source));
     }
     p.buildUp = sat01 (p.buildUp);
     p.mix     = sat01 (p.mix);
@@ -88,6 +97,8 @@ EngineParams DeepTranceEngine::derive (const EngineParams& user, float lfo1, flo
     p.drift.amount      *= fd;  p.drift.mix         *= fd;
 
     // 3. Build-Up: more (and bigger, longer) reverb, faster swirl. HPF + riser run in BuildUp.
+    //    The Riser pad drives it up over its bars; whichever is higher wins.
+    if (in.riser > 0.0f) p.buildUp = std::max (p.buildUp, sat01 (in.riser));
     const float b = p.buildUp;
     if (b > 0.0005f)
     {
@@ -129,6 +140,28 @@ EngineParams DeepTranceEngine::derive (const EngineParams& user, float lfo1, flo
         d.pitch    = lerpf (d.pitch, 0.0f, a);
         p.abyss.mix *= 1.0f - 0.7f * a;              // keep it dry and aggressive
     }
+
+    // 5. Pads (the performance layer, on top of everything).
+    if (in.throwAmt > 0.0f)
+    {
+        // Held: the delay and reverb take the input hard. Released: their input stops (the
+        // modules' own spillover) while the boosted tail rings and eases back.
+        const float t = sat01 (in.throwAmt);
+        if (in.throwHeld) p.delayOn = p.abyssOn = true;
+        p.delay.mix      = lerpf (p.delay.mix,      std::max (p.delay.mix, 0.55f),     t);
+        p.delay.feedback = lerpf (p.delay.feedback, std::max (p.delay.feedback, 0.8f), t);
+        p.abyss.mix      = lerpf (p.abyss.mix,      std::max (p.abyss.mix, 0.45f),     t);
+    }
+    if (in.washAmt > 0.0f)
+    {
+        // A near-endless, huge reverb that keeps taking the input (unlike Freeze, it also
+        // works when Abyss was off: there is something to wash out).
+        const float w = sat01 (in.washAmt);
+        if (in.washHeld) p.abyssOn = true;
+        p.abyss.mix      = lerpf (p.abyss.mix, std::max (p.abyss.mix, 0.75f), w);
+        p.abyss.decaySec = lerpf (p.abyss.decaySec, std::max (p.abyss.decaySec, 30.0f), w);
+        p.abyss.size     = lerpf (p.abyss.size, 1.0f, w);
+    }
     return p;
 }
 
@@ -149,11 +182,11 @@ void DeepTranceEngine::prepare (double newSampleRate)
     gate.prepare (sampleRate);  vowel.prepare (sampleRate); swirl.prepare (sampleRate);
     drift.prepare (sampleRate); acid.prepare (sampleRate);  buildUp.prepare (sampleRate);
     punch.prepare (sampleRate); cloud.prepare (sampleRate); delay.prepare (sampleRate);
-    abyss.prepare (sampleRate);
+    abyss.prepare (sampleRate); pump.prepare (sampleRate); output.prepare (sampleRate);
     for (auto& l : lfo) l.prepare (sampleRate);
     envFollower.prepare (sampleRate);
 
-    for (auto* f : { &gateFader, &vowelFader, &swirlFader, &driftFader, &acidFader, &buildFader }) f->prepare (sampleRate);
+    for (auto* f : { &gateFader, &vowelFader, &swirlFader, &driftFader, &acidFader, &buildFader, &pumpFader }) f->prepare (sampleRate);
     for (auto* s : { &inGainSm, &outGainSm, &mixSm }) s->prepare (sampleRate, 0.02);
     astralSm.prepare (sampleRate, 0.05);
 
@@ -165,7 +198,11 @@ void DeepTranceEngine::prepare (double newSampleRate)
 void DeepTranceEngine::reset() noexcept
 {
     gate.reset(); vowel.reset(); swirl.reset(); drift.reset(); acid.reset(); buildUp.reset();
+    pump.reset(); output.reset();
     for (auto& l : lfo) l.reset();
+    modValues = {};
+    inputs = {};
+    gateStep = 0; lastRandStep = -1;
     envFollower.reset();
     for (auto& s : astralLp) s.reset();
     lfoOut[0] = lfoOut[1] = envOut = 0.0f;
@@ -193,6 +230,7 @@ void DeepTranceEngine::applyToModules (const EngineParams& e, bool snapEnables) 
     driftFader.setEnabled (e.driftOn);
     acidFader.setEnabled (e.acidOn);
     buildFader.setEnabled (e.buildUp > 0.0005f);
+    pumpFader.setEnabled (e.pumpOn);
     punch.setEnabled (e.punchOn);
     cloud.setEnabled (e.cloudOn);
     delay.setEnabled (e.delayOn);
@@ -200,9 +238,12 @@ void DeepTranceEngine::applyToModules (const EngineParams& e, bool snapEnables) 
 
     if (snapEnables)
     {
-        for (auto* f : { &gateFader, &vowelFader, &swirlFader, &driftFader, &acidFader, &buildFader }) f->snap();
+        for (auto* f : { &gateFader, &vowelFader, &swirlFader, &driftFader, &acidFader, &buildFader, &pumpFader }) f->snap();
         punch.snapEnabled(); cloud.snapEnabled(); delay.snapEnabled(); abyss.snapEnabled();
     }
+    pump.setParams (e.pump);
+    output.setParams (e.output, e.pads.dropOn ? 1.0f : 0.0f);
+    if (snapEnables) output.snap();
 
     gate.setParams (e.gate);
     vowel.setParams (e.vowel);
@@ -286,7 +327,7 @@ void DeepTranceEngine::swapSound() noexcept
     holdingSound = false;
     transitionTarget = 0.0f;
     params = incoming;
-    applyToModules (derive (params, lfoOut[0], lfoOut[1], envOut), true);
+    applyToModules (derive (params, inputs), true);
     outGainSm.setImmediate (dbToGain (clampf (params.outputGainDb, -24.0f, 24.0f)));
     mixSm.setImmediate (sat01 (params.mix));
     astralSm.setImmediate (params.combo == Combo::AstralProjection ? sat01 (params.comboAmount) : 0.0f);
@@ -333,7 +374,22 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
     for (int i = 0; i < 2; ++i) { lfo[i].setParams (params.lfo[(size_t) i]); lfoOut[i] = lfo[i].tick (clock, n); }
     envFollower.setParams (params.env);
     envOut = envFollower.process (left, right, n);
-    applyToModules (derive (params, lfoOut[0], lfoOut[1], envOut), false);
+    {
+        // Gate step (for Step Random and the UI playhead), whether or not the gate is on.
+        const auto& g = params.gate;
+        float frac;
+        TranceGate::stepAt (clock.ppqAt (0), TranceGate::kRates[(size_t) std::clamp (g.rateIndex, 0, (int) TranceGate::kRates.size() - 1)].stepsPerQuarter,
+                            g.swing, gateStep, frac);
+        if (gateStep != lastRandStep) { modValues.rnd = stepRng.bipolar(); lastRandStep = gateStep; }
+    }
+    pump.setParams (params.pump);   // rate and shape for this chunk's position (depth is mod-smoothed below)
+    pump.advance (clock, n);
+    modValues.lfo1 = lfoOut[0]; modValues.lfo2 = lfoOut[1]; modValues.env = envOut;
+    modValues.gate = gateFader.isActive() ? gate.getEnvelope() : 0.0f;
+    modValues.pump = pump.getDuck();
+    updatePads (n);
+    inputs.mod = modValues;
+    applyToModules (derive (params, inputs), false);
 
     // Insert chain.
     const auto& clk = clock;
@@ -381,21 +437,50 @@ void DeepTranceEngine::processChunk (float* left, float* right, int n, const Tra
         astralLp[0].reset(); astralLp[1].reset();
     }
 
-    // Global dry/wet, then output gain.
+    // Global dry/wet, Pump (breathes the whole output, tails included), output gain.
     for (int i = 0; i < n; ++i)
     {
         const float mix = mixSm.next();
+        left[i]  = dryL[(size_t) i] + (left[i]  - dryL[(size_t) i]) * mix;
+        right[i] = dryR[(size_t) i] + (right[i] - dryR[(size_t) i]) * mix;
+    }
+    runModule (pumpFader, left, right, n, runner (pump, [] (Pump& m, float* l, float* r, int k) { m.process (l, r, k); }));
+    for (int i = 0; i < n; ++i)
+    {
         const float out = outGainSm.next();
-        left[i]  = (dryL[(size_t) i] + (left[i]  - dryL[(size_t) i]) * mix) * out;
-        right[i] = (dryR[(size_t) i] + (right[i] - dryR[(size_t) i]) * mix) * out;
-        if (fading)
+        left[i]  *= out;
+        right[i] *= out;
+    }
+
+    // Width, Bass Mono, Drop, safety clip. Before the sound-change fade, so a preset that
+    // switches any of them changes over silence like every other setting.
+    output.process (left, right, n);
+
+    if (fading)
+        for (int i = 0; i < n; ++i)
         {
             left[i]  += fade[i] * (dryL[(size_t) i] - left[i]);
             right[i] += fade[i] * (dryR[(size_t) i] - right[i]);
         }
-    }
 
     clock.endBlock (n);
+}
+
+void DeepTranceEngine::updatePads (int n) noexcept
+{
+    const auto& pads = params.pads;
+    const double beatSamples = 60.0 / clock.getBpm() * sampleRate;
+
+    // Throw and Wash: 1 while held, then ease back to 0 (2 bars and 1 bar).
+    inputs.throwHeld = pads.throwOn;
+    inputs.throwAmt  = pads.throwOn ? 1.0f : std::max (0.0f, inputs.throwAmt - (float) (n / (8.0 * beatSamples)));
+    inputs.washHeld  = pads.washOn;
+    inputs.washAmt   = pads.washOn ? 1.0f : std::max (0.0f, inputs.washAmt - (float) (n / (4.0 * beatSamples)));
+
+    // Riser: counts the bars it has been held (in samples, so a loop wrapping round
+    // under it does not restart the rise); released, it drops straight back.
+    const int bars = kRiserBars[(size_t) std::clamp (pads.riserBars, 0, (int) kRiserBars.size() - 1)];
+    inputs.riser = pads.riserOn ? std::min (1.0f, inputs.riser + (float) (n / (4.0 * bars * beatSamples))) : 0.0f;
 }
 
 void DeepTranceEngine::process (float* left, float* right, int numSamples, const TransportInfo& transport) noexcept

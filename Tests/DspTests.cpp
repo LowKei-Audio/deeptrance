@@ -735,6 +735,16 @@ void testCpu()
     p.cloud.density = 200.0f; p.cloud.sizeMs = 500.0f; p.buildUp = 0.5f;
     const double worst = measure ("worst case (96 grains, build-up):", p);
     CHECK (worst < 25.0, "worst case too heavy: %.2f%%", worst);
+
+    // 1.1 on top: Pump (lows band), the gate in ping-pong with swing, every output stage
+    // part, the pads. Measured against the 1.0 worst case in the same run, so a slow or
+    // busy CI machine cannot fail it: 1.1 may add at most 20%.
+    p.pumpOn = true; p.pump.band = (int) PumpBand::Lows;
+    p.gate.swing = 0.6f; p.gate.stereo = 1.0f;
+    p.output.width = 1.4f; p.output.bassMonoHz = 150.0f; p.output.clip = true;
+    p.pads.throwOn = p.pads.washOn = p.pads.dropOn = p.pads.riserOn = true;
+    const double worst11 = measure ("1.1 worst case (+ pump, pads, out):", p);
+    CHECK (worst11 < worst * 1.2 + 0.5, "1.1 features cost too much: %.2f%% vs %.2f%%", worst11, worst);
 }
 
 void renderDemos (const std::string& dir)
@@ -912,6 +922,284 @@ void testStatic()
 }
 
 
+// --- 1.1 ------------------------------------------------------------------------
+TransportInfo playing (double bpm = 120.0)
+{
+    TransportInfo t; t.bpm = bpm; t.isPlaying = true; t.hasPpq = true; t.ppqAtBlockStart = 0.0;
+    return t;
+}
+
+void testPump()
+{
+    section ("pump: synced duck, bands, block-size independence");
+    const double sr = 48000.0;
+    EngineParams p = allOff();
+    p.pumpOn = true; p.pump.depth = 1.0f; p.pump.shape = 0.5f; p.pump.rateIndex = 1; // 1/4 at 120 BPM = 0.5 s
+
+    // A steady tone: the level must dip right after each beat and be back by its end.
+    const Stereo out = process (p, sine (sr, 1000.0, 2.0), sr, 512, playing());
+    const size_t beat = (size_t) (0.5 * sr);
+    const double dip  = windowRmsDb (out.l, beat + (size_t) (0.006 * sr), 240);   // just after beat 2
+    const double back = windowRmsDb (out.l, 2 * beat - 480, 240);                 // end of beat 2
+    std::printf ("  depth 100%%: %.1f dB at the dip, %.1f dB at the end of the beat\n", dip, back);
+    CHECK (dip < -40.0, "full depth should nearly silence the dip (%.1f dB)", dip);
+    CHECK (back > -12.0, "the level should swell back by the end of the beat (%.1f dB)", back);
+
+    // The same audio whatever the host's block size.
+    const Stereo a = process (p, sine (sr, 440.0, 1.5), sr, 64, playing());
+    const Stereo b = process (p, sine (sr, 440.0, 1.5), sr, 997, playing());
+    float diff = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i) diff = std::max (diff, std::fabs (a.l[i] - b.l[i]));
+    CHECK (diff < 1.0e-5f, "pump depends on block size (%g)", (double) diff);
+
+    // Lows band: a 50 Hz tone ducks, a 5 kHz tone is untouched.
+    p.pump.band = (int) PumpBand::Lows;
+    const Stereo lo = process (p, sine (sr, 50.0, 2.0), sr, 512, playing());
+    const Stereo hi = process (p, sine (sr, 5000.0, 2.0), sr, 512, playing());
+    const double loDip = windowRmsDb (lo.l, beat + (size_t) (0.01 * sr), 960) - windowRmsDb (lo.l, 2 * beat - 2400, 960);
+    const double hiDip = windowRmsDb (hi.l, beat + (size_t) (0.01 * sr), 960) - windowRmsDb (hi.l, 2 * beat - 2400, 960);
+    std::printf ("  lows band: 50 Hz dips %.1f dB, 5 kHz dips %.2f dB\n", loDip, hiDip);
+    CHECK (loDip < -15.0, "lows band should duck 50 Hz (%.1f dB)", loDip);
+    CHECK (std::fabs (hiDip) < 0.5, "lows band should leave 5 kHz alone (%.2f dB)", hiDip);
+
+    // Shape: a longer hold keeps the level lower halfway through the beat.
+    auto mid = [&] (float shape)
+    {
+        EngineParams q = p; q.pump.band = 0; q.pump.shape = shape;
+        const Stereo o = process (q, sine (sr, 1000.0, 2.0), sr, 512, playing());
+        return windowRmsDb (o.l, beat + beat / 2, 480);
+    };
+    const double quick = mid (0.0f), held = mid (1.0f);
+    std::printf ("  halfway through the beat: shape 0 %.1f dB, shape 1 %.1f dB\n", quick, held);
+    CHECK (held < quick - 6.0, "shape 100%% should hold the dip longer");
+}
+
+void testGate11()
+{
+    section ("gate: swing, ping-pong, 1.1 patterns");
+    const double sr = 48000.0;
+    // 1/16 at 120 BPM = 6000 samples per step. Swing 100%: step 2 opens 1.5 steps in.
+    EngineParams p = allOff();
+    p.gateOn = true; p.gate.rateIndex = 1; p.gate.pattern = 0; p.gate.length = 1.0f;
+    p.gate.attackMs = 0.5f; p.gate.releaseMs = 1.0f;
+    for (size_t i = 0; i < 16; ++i) p.gate.steps[i] = (i % 2) ? 1.0f : 0.0f;   // only odd steps open
+    p.gate.swing = 1.0f;
+    const Stereo sw = process (p, sine (sr, 1000.0, 1.0), sr, 512, playing());
+    const double atStraight = windowRmsDb (sw.l, 6000 + 1200, 1200);   // where a straight step 2 would be
+    const double atSwung    = windowRmsDb (sw.l, 9000 + 1200, 1200);   // where the swung step 2 is
+    std::printf ("  swing 100%%: %.1f dB at 1 step, %.1f dB at 1.5 steps\n", atStraight, atSwung);
+    CHECK (atStraight < -40.0 && atSwung > -12.0, "full swing should move step 2 to 1.5 steps");
+
+    // Ping-pong: even steps sound on the left only, odd on the right.
+    p.gate.swing = 0.0f; p.gate.stereo = 1.0f;
+    for (auto& v : p.gate.steps) v = 1.0f;
+    const Stereo pp = process (p, sine (sr, 1000.0, 1.0), sr, 512, playing());
+    const double evenL = windowRmsDb (pp.l, 1200, 3600), evenR = windowRmsDb (pp.r, 1200, 3600);
+    const double oddL  = windowRmsDb (pp.l, 7200, 3600), oddR  = windowRmsDb (pp.r, 7200, 3600);
+    std::printf ("  ping-pong: step 1 L %.1f / R %.1f dB, step 2 L %.1f / R %.1f dB\n", evenL, evenR, oddL, oddR);
+    CHECK (evenR < evenL - 40.0 && oddL < oddR - 40.0, "ping-pong should alternate sides");
+
+    // 1.1 patterns are selected by patternExt and override the 1.0 list.
+    GateParams g; g.pattern = 1; g.patternExt = 3;   // "Psy Roll": step 1 closed
+    CHECK (TranceGate::stepsFor (g)[0] == 0.0f && TranceGate::stepsFor (g)[1] == 1.0f, "Gate Pattern+ should play the 1.1 pattern");
+    g.patternExt = 0;
+    CHECK (TranceGate::stepsFor (g)[0] == 1.0f, "Gate Pattern+ off should play the 1.0 pattern");
+}
+
+void testOutputStage()
+{
+    section ("output: width, bass mono, safety clip");
+    const double sr = 48000.0;
+    // A wide signal: different noise on each side.
+    EngineParams p = allOff();
+    p.output.width = 0.0f;
+    Stereo m = process (p, noise (sr, 0.5), sr);
+    float lr = 0.0f;
+    for (size_t i = 2400; i < m.size(); ++i) lr = std::max (lr, std::fabs (m.l[i] - m.r[i]));
+    CHECK (lr < 1.0e-6f, "width 0 should be mono (%g)", (double) lr);
+
+    // Bass Mono 150 Hz: a 50 Hz side signal goes, a 3 kHz side signal stays.
+    auto sideLevel = [&] (double hz)
+    {
+        Stereo s = sine (sr, hz, 1.0);
+        for (size_t i = 0; i < s.size(); ++i) s.r[i] = -s.r[i];   // pure side
+        EngineParams q = allOff(); q.output.bassMonoHz = 150.0f;
+        const Stereo o = process (q, s, sr);
+        std::vector<float> side (o.size());
+        for (size_t i = 0; i < o.size(); ++i) side[i] = 0.5f * (o.l[i] - o.r[i]);
+        return rmsDb (side, (size_t) (0.5 * sr)) - rmsDb (s.l, (size_t) (0.5 * sr));
+    };
+    const double low = sideLevel (50.0), high = sideLevel (3000.0);
+    std::printf ("  bass mono 150 Hz: side at 50 Hz %.1f dB, at 3 kHz %.2f dB\n", low, high);
+    CHECK (low < -15.0 && std::fabs (high) < 0.3, "bass mono should remove only the low side");
+
+    // Safety clip: nothing over 0 dBFS from a +12 dB tone; untouched under the knee.
+    p = allOff(); p.output.clip = true;
+    const Stereo hot = process (p, sine (sr, 200.0, 0.5, 4.0f), sr);
+    std::printf ("  safety clip: +12 dBFS tone peaks at %.3f\n", (double) peak (hot));
+    CHECK (peak (hot) <= 1.0f, "safety clip should hold the output at 0 dBFS (%.3f)", (double) peak (hot));
+    const Stereo quiet = sine (sr, 200.0, 0.5, 0.5f);
+    const Stereo q2 = process (p, quiet, sr);
+    CHECK (std::memcmp (q2.l.data(), quiet.l.data(), quiet.size() * 4) == 0, "safety clip must not touch audio under the knee");
+}
+
+void testPads()
+{
+    section ("pads: throw, wash, drop, riser");
+    const double sr = 48000.0;
+    const size_t half = (size_t) (1.0 * sr);
+
+    // Throw with the delay off: held for a beat over a tone, then silence. The echo must
+    // ring on after release (its input stops, the tail does not).
+    {
+        EngineParams p = allOff();
+        srRef() = sr;
+        DeepTranceEngine e; e.setParams (p); e.prepare (sr);
+        Stereo s = sine (sr, 600.0, 3.0);
+        for (size_t i = half; i < s.size(); ++i) s.l[i] = s.r[i] = 0.0f;  // input stops at 1 s
+        TransportInfo t = playing();
+        for (size_t off = 0; off < s.size(); off += 512)
+        {
+            p.pads.throwOn = off >= half - 24000 && off < half;          // held for the last 0.5 s
+            e.setParams (p);
+            const int n = (int) std::min<size_t> (512, s.size() - off);
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+        }
+        const double tail = windowRmsDb (s.l, half + (size_t) (0.6 * sr), 4800);
+        std::printf ("  throw: tail 0.6 s after release %.1f dB\n", tail);
+        CHECK (tail > -40.0, "a throw should keep ringing after release (%.1f dB)", tail);
+    }
+
+    // Drop: 60 Hz cut hard, 5 kHz kept.
+    {
+        EngineParams p = allOff(); p.pads.dropOn = true;
+        const double lo = rmsDb (process (p, sine (sr, 60.0, 1.0), sr).l, 9600) - rmsDb (sine (sr, 60.0, 1.0).l, 9600);
+        const double hi = rmsDb (process (p, sine (sr, 5000.0, 1.0), sr).l, 9600) - rmsDb (sine (sr, 5000.0, 1.0).l, 9600);
+        std::printf ("  drop: 60 Hz %.1f dB, 5 kHz %.2f dB\n", lo, hi);
+        CHECK (lo < -30.0 && std::fabs (hi) < 0.5, "drop should cut the lows only");
+    }
+
+    // Riser: 4 bars at 120 BPM = 8 s to reach 100% Build-Up; released, straight back to 0.
+    {
+        EngineParams p = allOff(); p.pads.riserOn = true; p.pads.riserBars = 0;
+        srRef() = sr;
+        DeepTranceEngine e; e.setParams (p); e.prepare (sr);
+        Stereo s = sine (sr, 300.0, 9.0, 0.2f);
+        TransportInfo t = playing();
+        float at4s = 0.0f;
+        for (size_t off = 0; off < s.size(); off += 480)
+        {
+            const int n = (int) std::min<size_t> (480, s.size() - off);
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+            if (off == (size_t) (4.0 * sr)) at4s = e.getRiser();
+        }
+        std::printf ("  riser 4 bars: %.2f at 2 bars, %.2f at the end\n", (double) at4s, (double) e.getRiser());
+        CHECK (std::fabs (at4s - 0.5f) < 0.02f && e.getRiser() == 1.0f, "riser should climb over its bars");
+        p.pads.riserOn = false; e.setParams (p);
+        Stereo one (512);
+        e.process (one.l.data(), one.r.data(), 512, t);
+        CHECK (e.getRiser() == 0.0f, "releasing the riser should drop Build-Up at once");
+        CHECK (DeepTranceEngine::derive (p, [] { DeriveInputs in; in.riser = 0.7f; return in; }()).buildUp == 0.7f,
+               "the riser should drive Build-Up");
+    }
+
+    // Wash works with Abyss off: there is a reverb to hear while held.
+    {
+        DeriveInputs in; in.washAmt = 1.0f; in.washHeld = true;
+        const EngineParams d = DeepTranceEngine::derive (allOff(), in);
+        CHECK (d.abyssOn && d.abyss.mix >= 0.75f && d.abyss.decaySec >= 30.0f, "wash should open a huge reverb");
+    }
+}
+
+void testMod11()
+{
+    section ("modulation: 1.1 sources and destinations");
+    EngineParams p = allOff();
+    p.mod[0] = { (int) ModSource::Pump, (int) ModDest::OutputWidth, 1.0f };
+    p.mod[1] = { (int) ModSource::Gate, (int) ModDest::GateLength, -0.5f };
+    p.mod[2] = { (int) ModSource::StepRandom, (int) ModDest::PumpDepth, 0.5f };
+    DeriveInputs in; in.mod.pump = 0.5f; in.mod.gate = 1.0f; in.mod.rnd = -0.4f;
+    const EngineParams d = DeepTranceEngine::derive (p, in);
+    CHECK (std::fabs (d.output.width - 1.5f) < 1e-6f, "Pump -> Output Width");
+    CHECK (std::fabs (d.gate.length - 0.1f) < 1e-6f, "Gate -> Gate Length");
+    CHECK (std::fabs (d.pump.depth - 0.4f) < 1e-6f, "Step Random -> Pump Depth");
+    CHECK ((int) ModDest::Count == (int) modDestinationNames().size(), "every destination has a name");
+
+    // Step Random: a new value on each gate step, held within it.
+    const double sr = 48000.0;
+    EngineParams q = allOff(); q.gate.rateIndex = 1;   // 1/16 at 120 BPM = 6000 samples
+    srRef() = sr;
+    DeepTranceEngine e; e.setParams (q); e.prepare (sr);
+    Stereo s (24000);
+    TransportInfo t = playing();
+    std::vector<float> vals;
+    for (size_t off = 0; off < s.size(); off += 480)
+    {
+        e.process (&s.l[off], &s.r[off], 480, t);
+        t.ppqAtBlockStart += 480 * t.bpm / 60.0 / sr;
+        vals.push_back (e.getModValues().rnd);
+    }
+    int changes = 0;
+    for (size_t i = 1; i < vals.size(); ++i) changes += vals[i] != vals[i - 1];
+    CHECK (changes == 3, "step random should change once per step (%d changes over 4 steps)", changes);
+}
+
+void testStatic11()
+{
+    section ("static: 1.1 features across loop wraps and switches");
+    const double sr = 48000.0;
+    auto wrapSpike = [&] (EngineParams p, double wrapTo)
+    {
+        DeepTranceEngine e; e.setParams (p); e.prepare (sr);
+        Stereo s = heldTone (sr, 4.0);
+        TransportInfo t = playing();
+        const size_t wrap = (size_t) (2.0 * sr) / 512 * 512 + 512;
+        for (size_t off = 0; off < s.size(); off += 512)
+        {
+            const int n = (int) std::min<size_t> (512, s.size() - off);
+            if (off == wrap) t.ppqAtBlockStart = wrapTo;   // loop wraps round, mid-cycle
+            e.process (&s.l[off], &s.r[off], n, t);
+            t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+        }
+        return spikeRatio (s, wrap, 4096);
+    };
+    EngineParams p = allOff();
+    p.pumpOn = true; p.pump.depth = 0.7f; p.pump.rateIndex = 2;   // 1/2: a wrap lands mid-swell
+    const float pumpWrap = wrapSpike (p, 0.37);
+    std::printf ("  pump across a loop wrap: spike %.2f\n", (double) pumpWrap);
+    CHECK (pumpWrap < 2.5f, "a loop wrap should not click the pump (%.2f)", (double) pumpWrap);
+
+    // Switching Pump, the output stage and the pads on and off over a held tone.
+    EngineParams q = allOff(); q.abyssOn = true; q.delayOn = true;
+    DeepTranceEngine e; e.setParams (q); e.prepare (sr);
+    Stereo s = heldTone (sr, 6.0);
+    TransportInfo t = playing();
+    std::vector<size_t> events;
+    for (size_t off = 0, k = 0; off < s.size(); off += 512, ++k)
+    {
+        if (k > 0 && k % 40 == 0)
+        {
+            const int step = (int) (k / 40);
+            q.pumpOn = step % 2;  q.output.clip = step % 3 == 0;  q.output.width = step % 2 ? 1.5f : 1.0f;
+            q.output.bassMonoHz = step % 4 < 2 ? 120.0f : 0.0f;
+            q.pads.dropOn = step % 3 == 1; q.pads.throwOn = step % 5 == 2; q.pads.washOn = step % 4 == 3;
+            e.setParams (q);
+            events.push_back (off);
+        }
+        const int n = (int) std::min<size_t> (512, s.size() - off);
+        e.process (&s.l[off], &s.r[off], n, t);
+        t.ppqAtBlockStart += n * t.bpm / 60.0 / sr;
+    }
+    // Each switch against the sharpest moment of the whole render (the pump's own dips).
+    const float ref = std::max (sharpest4 (s, 4800, s.size()), 1.0e-3f);
+    float worst = 0.0f;
+    for (size_t at : events) worst = std::max (worst, sharpest4 (s, at - 16, at + 1024) / ref);
+    std::printf ("  switching 1.1 features while playing: worst %.2f of the sound's sharpest moment\n", (double) worst);
+    CHECK (worst <= 1.0f, "switching a 1.1 feature should never be the sharpest moment (%.2f)", (double) worst);
+}
+
 // --- 1.0.3 compatibility ---------------------------------------------------------
 // Every 1.1 feature is neutral by default, so a sound made with 1.0.3 must come out
 // bit-for-bit the same. These fingerprints were rendered by the 1.0.3 engine. Floating
@@ -1023,6 +1311,12 @@ int main (int argc, char** argv)
     testBuildUpAndCombos();
     testCpu();
     testStatic();
+    testPump();
+    testGate11();
+    testOutputStage();
+    testPads();
+    testMod11();
+    testStatic11();
     testCompat103();
 
     if (argc == 3 && std::string (argv[1]) == "--render")

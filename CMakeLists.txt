@@ -27,6 +27,7 @@ add_library(DeepTranceDSP STATIC
     Source/DSP/Cloud.cpp
     Source/DSP/FractalDelay.cpp
     Source/DSP/AbyssReverb.cpp
+    Source/DSP/Pump.cpp
     Source/DSP/DeepTranceEngine.cpp)
 
 target_include_directories(DeepTranceDSP PUBLIC Source)
